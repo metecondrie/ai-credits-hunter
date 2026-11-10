@@ -124,9 +124,15 @@ python -m unittest discover -s tests -p "test_ach_integration.py"
 Resultado en la versión publicada: **50 pruebas offline en verde** (11 unitarias, 14 de
 extractores, 25 de IA) y **9 de 11 en integración**.
 
-En la rama `fix/p02-deepseek-pricing` (2026-11-10) las pruebas offline pasan a
-**63 en verde** (11 unitarias, **27 de extractores**, 25 de IA) por los 13 casos de
-regresión del P0.2, corridos sin red y con bases temporales. Las dos pruebas de
+En la rama `fix/p02-deepseek-pricing` (2026-11-10) hay **63 pruebas** (11 unitarias,
+**27 de extractores**, 25 de IA) por los 13 casos de regresión del P0.2. Con los
+sockets bloqueados y bases temporales pasan **62 de 63**: las 38 deterministas
+(11 unitarias + 27 de extractores) están en verde, y de las 25 de IA pasan 24. La
+restante, `test_openrouter_paid_model_blocked_without_authorization`, **exige red**:
+`assess_cost()` llama a `list_models()` sin recibir el `http_post` inyectado. Es
+preexistente y ajena al P0.2 (falla igual sobre `main` con la red bloqueada) y solo
+pasa si se permite esa salida HTTP, así que no debe contarse como prueba offline.
+Las dos pruebas de
 integración que fallaban (`test_at_least_three_sources_verified` y
 `test_prices_come_from_pages`) dependían de que `deepseek-pricing` extrajera precios:
 la causa era la URL sin barra final, ya corregida y comprobada en vivo. **La suite
@@ -135,7 +141,11 @@ exigiría varias consultas no indispensables. No se afirma 11/11; queda clasific
 como verificación de conectividad pendiente, separada de las pruebas deterministas
 con fixtures, que sí están en verde.
 
-Para correr la integración sin red:
+`ACH_OFFLINE=1` **solo lo lee `tests/test_ach_integration.py`**: omite con
+`SkipTest` las pruebas que consultan fuentes reales. No está implementado en
+`ach/`, así que no vuelve offline al motor ni a `test_ach_ai.py`,
+`test_ach_unit.py` o `test_ach_extractors.py`: esas tres se comportan igual con o
+sin la variable, y su aislamiento depende de los mocks y fixtures de cada prueba.
 
 ```bash
 ACH_OFFLINE=1 python -m unittest discover -s tests -p "test_ach_integration.py"
@@ -165,8 +175,9 @@ reports/v4/     vacío: acá se escriben los reportes de cada corrida (no se ver
 - **Bases protegidas**: el motor se niega a abrir en escritura nombres de bases históricas
   (`promotions.sqlite3`, `hunter.db`).
 
-Variables de entorno opcionales: `ACH_DB`, `ACH_TIMEOUT`, `ACH_RETRIES`, `ACH_DELAY`,
-`ACH_MAX_BYTES`, `ACH_HOST_INTERVAL`, `ACH_OFFLINE`.
+Variables de entorno opcionales del motor: `ACH_DB`, `ACH_TIMEOUT`, `ACH_RETRIES`,
+`ACH_DELAY`, `ACH_MAX_BYTES`, `ACH_HOST_INTERVAL`. `ACH_OFFLINE` no es del motor:
+solo la usa la suite de integración para omitir las pruebas con red (sección 7).
 
 ## 10. Limitaciones conocidas
 
