@@ -1,0 +1,18 @@
+# Dependencias de AI Credits Hunter
+
+El motor usa **solo la biblioteca estandar de Python (>= 3.11)**.
+No hay dependencias obligatorias: `python -m ach init` funciona en una
+instalacion limpia de Python, sin `pip install`.
+
+    # Nada que instalar. Verificacion opcional:
+    python -m ach doctor
+
+## Opcional
+
+Solo si vas a configurar proveedores de IA desde la interfaz web, las claves
+se guardan en el Credential Manager del sistema mediante `keyring`:
+
+    # keyring>=24.0
+
+Sin `keyring` instalado, el resto del motor funciona igual en modo
+determinista (extractores + reglas), que es el modo por defecto.

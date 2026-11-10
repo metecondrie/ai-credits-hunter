@@ -1,0 +1,82 @@
+# ===========================================================================
+# AI Credits Hunter - .gitignore
+# El repositorio publica solo codigo, migraciones, pruebas y documentacion.
+# Nada de bases operativas, reportes generados, credenciales ni caches.
+# ===========================================================================
+
+# --- Bases de datos operativas ---------------------------------------------
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db3
+*-wal
+*-shm
+*-journal
+*.bak
+
+# El directorio data/ se versiona vacio: la base la crea "ach init".
+data/*
+!data/.gitkeep
+
+# --- Reportes generados en cada corrida ------------------------------------
+reports/*
+!reports/v4/
+reports/v4/*
+!reports/v4/.gitkeep
+
+# --- Credenciales y secretos -----------------------------------------------
+# Las API keys de IA no van a archivos: viven en el Credential Manager
+# del sistema operativo (keyring) o en variables de entorno.
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+credentials.json
+credentials*.json
+secrets.json
+secrets*.json
+service-account*.json
+
+# --- Python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+
+# --- Caches de herramientas ------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.cache/
+
+# --- Registros y temporales ------------------------------------------------
+*.log
+logs/
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+Thumbs.db
+ehthumbs.db
+desktop.ini
+.DS_Store
