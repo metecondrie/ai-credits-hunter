@@ -69,6 +69,8 @@ fuentes. Es idempotente: se puede correr las veces que haga falta.
 | `python -m ach export` | Exporta `reports/v4/ofertas_v4.json` y `.csv`. |
 | `python -m ach doctor` | Integridad, claves foráneas y conectividad de fuentes. |
 | `python -m ach serve --port 8765` | Interfaz web local. |
+| `python -m ach discover` | Descubre enlaces candidatos en feeds oficiales (no verificados). |
+| `python -m ach discover --list` | Muestra los candidatos guardados, sin consultar la red. |
 
 En Windows hay dos atajos: `iniciar_v4.bat` (init + run + interfaz) y `buscar_v4.bat`
 (solo init + run).
@@ -80,7 +82,50 @@ python -m ach serve --port 8765
 ```
 
 Queda en `http://127.0.0.1:8765`. Escucha **solo en loopback**: no se expone a la red
-local ni a internet.
+local ni a internet. La pestaña **Descubiertos** (`/descubiertos`) lista los enlaces
+candidatos guardados, con su advertencia de que no son ofertas verificadas.
+
+### Descubrimiento de oportunidades (P1.4)
+
+```bash
+python -m ach discover          # recorre feeds y guarda candidatos nuevos
+python -m ach discover --list   # consulta lo guardado, sin red
+```
+
+Recorre **6 feeds oficiales**: los tres RSS que ya sigue el cazador (OpenAI News,
+Google AI Blog, Hugging Face Blog) más tres feeds adicionales verificados accesibles
+el 2026-11-10: **AWS What's New**, **Cloudflare Blog** y **NVIDIA Blog**. Se probaron
+también Anthropic News y Mistral News (HTTP 404) y Groq Blog (no es RSS): no se
+incorporaron.
+
+De cada enlace candidato guarda proveedor, título, URL normalizada, feed de origen,
+fecha de publicación si existe, fecha de descubrimiento, el fragmento de texto
+centrado en la frase que disparó la detección, la frase detectada y el estado
+`PENDIENTE_VERIFICACION`. Todo va a `data/discovered_candidates.json` (ignorado por
+Git): **sin migraciones SQLite** y sin tocar la base de ofertas.
+
+**Limitaciones deliberadas:**
+
+- **Un enlace descubierto no es una oferta.** No se promueve al catálogo de
+  extractores, no entra en la tabla `offer` y nunca se marca `NETWORK_VERIFIED`.
+  Verificar contenido y condiciones sigue siendo un paso humano posterior.
+- **No se visitan los enlaces descubiertos.** Solo se leen los feeds; por lo tanto
+  no hay navegación indiscriminada a sitios externos.
+- Solo se aceptan enlaces de **dominios oficiales conocidos** (los del catálogo de
+  proveedores y los hosts de los feeds). `robots.txt` se respeta vía `HttpFetcher`,
+  con retardo mínimo por host.
+- Límites: 8 feeds, 100 items por feed (`--max-items`), 400 enlaces por corrida y el
+  timeout de `ACH_TIMEOUT`.
+- Deduplicación por **URL normalizada**: sin fragmento, sin parámetros de seguimiento
+  (`utm_*`, `fbclid`, `gclid`, `ref`, etc.), host en minúsculas y query ordenada.
+  También se descartan las URL que ya están en el catálogo de fuentes.
+- El detector busca **frases de beneficio** (`free tier`, `free credits`,
+  `at no charge`, `% off`, `student pack`, `descuento`, …), no palabras sueltas:
+  `credit`, `student` o `pricing` solas capturan noticias institucionales sin beneficio.
+  Aun así puede haber **falsos positivos**; por eso el estado es pendiente.
+- Sin buscadores pagos, sin APIs de inferencia, sin consumo de créditos y sin tareas
+  programadas: la ejecución es manual.
+- Si una corrida no produce coincidencias, informa **cero** y no guarda relleno.
 
 ## 4. Fuentes incluidas
 
@@ -485,11 +530,18 @@ Esta versión no declara una licencia; se publica para lectura y evaluación.
    y límites.
 
 7. **Descubrir fuentes nuevas, no solo volver a consultar las conocidas.**
-   Añadir una etapa de descubrimiento mediante feeds, APIs públicas y búsquedas
-   gratuitas permitidas; cada URL descubierta entra como *candidata*,
-   nunca como evidencia confirmada. Validar dominio oficial, relevancia,
-   duplicados, fecha, accesibilidad y método de extracción antes de promover
-   una fuente al catálogo activo. No construir un crawler masivo sin necesidad.
+   **MVP implementado (P1.4, 2026-11-10, rama `feature/p14-auto-discovery`):**
+   `python -m ach discover` recorre 6 feeds oficiales (los 3 RSS del cazador más
+   AWS What's New, Cloudflare Blog y NVIDIA Blog), extrae enlaces de dominios
+   oficiales con lenguaje de beneficio, los deduplica por URL normalizada y los
+   guarda en `data/discovered_candidates.json` como `PENDIENTE_VERIFICACION`.
+   Cada URL descubierta entra como *candidata*, nunca como evidencia confirmada:
+   no se promueve al catálogo de extractores ni se marca `NETWORK_VERIFIED`.
+   Ver `README` §3 «Descubrimiento de oportunidades» para el detalle y los límites.
+   **Sigue pendiente** validar dominio oficial, relevancia, accesibilidad y método
+   de extracción de cada candidato antes de promoverlo al catálogo activo, y
+   ampliar los puntos de partida (feeds de Anthropic y Mistral dieron 404; Groq
+   Blog no es RSS). No se construyó un crawler masivo ni se usaron buscadores pagos.
 
 8. **Separar tipos de oportunidades y relevancia personal.**
    Distinguir `PROMOCION_TEMPORAL`, `CREDITO`, `PRUEBA`, `FREE_TIER`,
