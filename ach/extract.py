@@ -1131,6 +1131,145 @@ def fireworks_free_model(source: Source, res: FetchResult) -> list[Candidate]:
     )]
 
 
+# --------------------------------------------------------------------------
+# 11) P1.3: beneficios estudiantiles y de startups con ancla oficial
+# --------------------------------------------------------------------------
+_GH_PRO = re.compile(r"Free GitHub Pro while you are a student", re.I)
+_GH_COPILOT = re.compile(
+    r"GitHub Copilot Student is available to verified students\.\s*The plan includes[^.]*\.",
+    re.I)
+
+
+def github_student_pack(source: Source, res: FetchResult) -> list[Candidate]:
+    """Solo las ofertas propias de GitHub, no las de terceros del pack."""
+    text = ht.to_text(res.text)
+    pro = _GH_PRO.search(text)
+    cop = _GH_COPILOT.search(text)
+    if not pro or not cop:
+        return []
+    comunes = dict(
+        source_id=source.id, provider_key=source.provider_key,
+        official_url=source.url, evidence_url=source.url,
+        price_baseline=None, price_offer=None, price_unit=None, currency=None,
+        discount_pct=None, card_required="unknown", auto_renewal="unknown",
+        student_required="yes", argentina_status="ARGENTINA_NO_CONFIRMADA",
+        terms_url=source.terms_url, confidence="alta",
+        eligibility="Estudiantes verificados por GitHub Education.",
+        tags=["estudiantil", "herramientas", "github"],
+        benefit_kind="BENEFICIO_ESTUDIANTIL",
+    )
+    return [
+        Candidate(
+            product="GitHub Pro (estudiantes)",
+            title="GitHub Pro gratis mientras seas estudiante",
+            offer_type="STUDENT",
+            benefit="GitHub declara en el Student Developer Pack: 'Free GitHub Pro "
+                    "while you are a student'.",
+            evidence_snippet=ht.snippet(text, pro.start(), pro.end(), 80),
+            extraction_rule="html:oferta propia de GitHub en el Student Developer Pack",
+            notes="Beneficio estudiantil, no descuento. Es la oferta de GitHub, no las "
+                  "ofertas de terceros del pack (que no se extraen). Tarjeta, pais y "
+                  "duracion: No confirmado en la pagina.",
+            dedupe_extra="github-pro", **comunes),
+        Candidate(
+            product="GitHub Copilot Student",
+            title="GitHub Copilot Student para estudiantes verificados",
+            offer_type="STUDENT",
+            benefit=ht.collapse(cop.group(0)),
+            evidence_snippet=ht.snippet(text, cop.start(), cop.end(), 80),
+            extraction_rule="html:oferta propia de GitHub Copilot Student + condiciones",
+            notes="Incluye completados ilimitados y una asignacion de GitHub AI Credits, "
+                  "con chat y agentes limitados a seleccion automatica de modelo. No es "
+                  "acceso ilimitado a todos los modelos. Tarjeta y pais: No confirmado.",
+            dedupe_extra="github-copilot-student", **comunes),
+    ]
+
+
+_AWS_ACTIVATE = re.compile(
+    r"Apply to receive up to \$([\d,]+) in AWS Activate Credits[^.]*\.", re.I)
+
+
+def aws_activate_credits(source: Source, res: FetchResult) -> list[Candidate]:
+    text = ht.to_text(res.text)
+    m = _AWS_ACTIVATE.search(text)
+    if not m or not re.search(r"startup", text, re.I):
+        return []
+    tope = m.group(1)
+    return [Candidate(
+        source_id=source.id, provider_key=source.provider_key,
+        product="AWS Activate (startups)",
+        title=f"AWS Activate: hasta USD {tope} en creditos para startups elegibles",
+        offer_type="CREDITS",
+        benefit=(
+            f"AWS declara: 'Apply to receive up to USD {tope} in AWS Activate Credits to "
+            "offset costs on infrastructure, data services, and AI/ML models'. Los "
+            "creditos son canjeables en modelos de terceros via Amazon Bedrock."
+        ),
+        official_url=source.url, evidence_url=source.url,
+        evidence_snippet=ht.snippet(text, m.start(), m.end(), 80),
+        extraction_rule="html:tope de creditos Activate + contexto de startups",
+        price_baseline=None, price_offer=None, price_unit="USD (creditos)",
+        currency="USD", discount_pct=None,
+        eligibility=(
+            "STARTUPS elegibles, no usuarios individuales. Hay que aplicar y ser "
+            "admitido; el importe es un tope ('up to'), no una asignacion garantizada."
+        ),
+        card_required="unknown", auto_renewal="unknown", student_required="no",
+        argentina_status="ARGENTINA_NO_CONFIRMADA", terms_url=source.terms_url,
+        confidence="media",
+        notes=(
+            "Beneficio para STARTUPS, distinto de AWS Educate (estudiantes) y de las "
+            "ofertas para usuarios individuales. El monto publicado es un maximo "
+            "condicionado a elegibilidad: no se presenta como credito seguro. "
+            "Tarjeta, pais y vencimiento: No confirmado."
+        ),
+        dedupe_extra=source.id, tags=["creditos", "startups", "cloud", "elegibilidad"],
+        benefit_kind="CREDITO",
+    )]
+
+
+_GCP_SKILLS = re.compile(r"(\d+) free Google Skills credits", re.I)
+_GCP_SKILLS_EXP = re.compile(r"Credits expire one year after they are issued", re.I)
+
+
+def gcp_student_skills(source: Source, res: FetchResult) -> list[Candidate]:
+    text = ht.to_text(res.text)
+    m = _GCP_SKILLS.search(text)
+    exp = _GCP_SKILLS_EXP.search(text)
+    if not m or not exp:
+        return []
+    cantidad = m.group(1)
+    return [Candidate(
+        source_id=source.id, provider_key=source.provider_key,
+        product="Google Skills (Google Cloud para estudiantes)",
+        title=f"Google Skills: {cantidad} creditos gratuitos para estudiantes",
+        offer_type="STUDENT",
+        benefit=(
+            f"La pagina de Google Cloud para estudiantes declara '{cantidad} free "
+            "Google Skills credits' y que los creditos vencen un ano despues de emitidos."
+        ),
+        official_url=source.url, evidence_url=source.url,
+        evidence_snippet=ht.snippet(text, m.start(), max(m.end(), exp.end()), 80),
+        extraction_rule="html:creditos de Google Skills + vencimiento a un ano",
+        price_baseline=None, price_offer=None, price_unit=None, currency=None,
+        discount_pct=None,
+        eligibility=(
+            "Publicado en la pagina de Google Cloud para estudiantes. La pagina no "
+            "detalla un requisito de verificacion academica para estos creditos."
+        ),
+        card_required="unknown", auto_renewal="unknown", student_required="unknown",
+        argentina_status="ARGENTINA_NO_CONFIRMADA", terms_url=source.terms_url,
+        confidence="alta",
+        notes=(
+            "Son creditos de Google Skills (aprendizaje), DISTINTOS de los USD 300 del "
+            "Google Cloud Free Trial que ya sigue otra fuente: no se duplican. "
+            "Vencimiento publicado: un ano desde la emision. Tarjeta y pais: No confirmado."
+        ),
+        dedupe_extra=source.id, tags=["estudiantil", "creditos", "aprendizaje"],
+        benefit_kind="BENEFICIO_ESTUDIANTIL",
+    )]
+
+
 EXTRACTORS = {
     "openrouter_free_models": openrouter_free_models,
     "deepseek_offpeak": deepseek_offpeak,
@@ -1149,6 +1288,9 @@ EXTRACTORS = {
     "aws_educate": aws_educate,
     "azure_free_account": azure_free_account,
     "fireworks_free_model": fireworks_free_model,
+    "github_student_pack": github_student_pack,
+    "aws_activate_credits": aws_activate_credits,
+    "gcp_student_skills": gcp_student_skills,
 }
 
 

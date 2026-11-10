@@ -213,13 +213,11 @@ SOURCES: list[Source] = [
         url="https://www.alibabacloud.com/help/en/model-studio/new-free-quota",
         kind="html", extractor="alibaba_free_quota",
         official_domain="alibabacloud.com", priority="A", cadence_hours=24,
-        enabled=False,
         terms_url="https://www.alibabacloud.com/help/en/model-studio/",
         notes="Cuota gratuita por 90 dias. RIESGO: al agotarse se factura automaticamente; "
               "la proteccion 'Free Quota Only' viene desactivada por defecto. "
-              "DESHABILITADA: el parser de robots del motor reduce las reglas con "
-              "comodin ('/*.json') al prefijo '/', bloqueando todo el host. El extractor "
-              "y su fixture estan listos; reactivar cuando se corrija ese parser.",
+              "Reactivada en P1.3 al corregir el emparejamiento de comodines del parser "
+              "de robots; la ruta no esta prohibida por el sitio.",
     ),
     Source(
         id="cerebras-promo-credit",
@@ -272,13 +270,11 @@ SOURCES: list[Source] = [
         url="https://aws.amazon.com/education/awseducate/",
         kind="html", extractor="aws_educate",
         official_domain="aws.amazon.com", priority="B", cadence_hours=24,
-        enabled=False,
         terms_url="https://aws.amazon.com/education/awseducate/",
         notes="Laboratorios y recursos de aprendizaje sin tarjeta, desde 13 anos. "
               "No publica creditos para APIs de IA: no se inventan. "
-              "DESHABILITADA: el parser de robots del motor reduce las reglas con "
-              "comodin ('/*/blogs/') al prefijo '/', bloqueando todo el host. El "
-              "extractor y su fixture estan listos; reactivar al corregir ese parser.",
+              "Reactivada en P1.3 al corregir el emparejamiento de comodines del parser "
+              "de robots; la ruta no esta prohibida por el sitio.",
     ),
     Source(
         id="azure-free-account",
@@ -301,6 +297,40 @@ SOURCES: list[Source] = [
         terms_url="https://fireworks.ai/pricing",
         notes="Modelo gratuito hasta una fecha publicada, sin tarjeta. La pagina no "
               "explicita el ano: no se fija expires_at ni se inventa.",
+    ),
+    # --- P1.3: recuperacion y ampliacion ------------------------------------
+    Source(
+        id="github-student-pack",
+        name="GitHub Student Developer Pack - ofertas de GitHub",
+        provider_key="github",
+        url="https://education.github.com/pack",
+        kind="html", extractor="github_student_pack",
+        official_domain="education.github.com", priority="A", cadence_hours=24,
+        terms_url="https://education.github.com/pack",
+        notes="Solo las ofertas propias de GitHub (Pro y Copilot Student) para "
+              "estudiantes verificados. Las ofertas de terceros del pack no se extraen.",
+    ),
+    Source(
+        id="aws-activate-startups",
+        name="AWS Activate - Creditos para startups",
+        provider_key="aws",
+        url="https://aws.amazon.com/activate/",
+        kind="html", extractor="aws_activate_credits",
+        official_domain="aws.amazon.com", priority="B", cadence_hours=24,
+        terms_url="https://aws.amazon.com/activate/",
+        notes="Hasta USD 200,000 en creditos, solo startups elegibles que aplican. "
+              "El importe es un tope, no una asignacion garantizada.",
+    ),
+    Source(
+        id="gcp-students-skills-credits",
+        name="Google Cloud estudiantes - Google Skills credits",
+        provider_key="google",
+        url="https://cloud.google.com/edu/students",
+        kind="html", extractor="gcp_student_skills",
+        official_domain="cloud.google.com", priority="B", cadence_hours=24,
+        terms_url="https://cloud.google.com/edu/students",
+        notes="200 creditos de Google Skills con vencimiento a un ano. Distintos del "
+              "Free Trial de USD 300: no se duplican.",
     ),
 ]
 
@@ -424,6 +454,13 @@ PROVIDERS: dict[str, dict] = {
         "company": "Fireworks AI",
         "category": "api",
         "official_domains": "fireworks.ai",
+        "identity_status": "CONFIRMED",
+    },
+    "github": {
+        "name": "GitHub",
+        "company": "GitHub (Microsoft)",
+        "category": "developer_tools",
+        "official_domains": "github.com, education.github.com",
         "identity_status": "CONFIRMED",
     },
 }

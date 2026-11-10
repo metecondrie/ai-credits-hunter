@@ -13,6 +13,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import io
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -50,6 +51,19 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _robots_match(rule: str, target: str) -> bool:
+    """Empareja una regla de robots.txt con comodin '*' y ancla final '$'.
+
+    Antes se comparaba solo el prefijo previo al '*', asi que una regla como
+    '/*.json' o '/*/blogs/*/tag/' se reducia a '/' y bloqueaba el host entero.
+    El comodin vale cualquier secuencia; el resto de la regla es literal.
+    """
+    ancla = rule.endswith("$")
+    cuerpo = rule[:-1] if ancla else rule
+    patron = "".join(".*" if c == "*" else re.escape(c) for c in cuerpo)
+    return re.match("^" + patron + ("$" if ancla else ""), target) is not None
+
+
 class _Robots:
     """Cache de robots.txt por host, con parser minimo."""
 
@@ -85,9 +99,10 @@ class _Robots:
                 rules = []
             self._cache[host] = rules
         path = parts.path or "/"
+        if parts.query:
+            path += "?" + parts.query
         for rule in self._cache[host]:
-            prefix = rule.split("*", 1)[0]
-            if prefix and path.startswith(prefix):
+            if _robots_match(rule, path):
                 return False
         return True
 

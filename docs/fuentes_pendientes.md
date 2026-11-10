@@ -3,12 +3,13 @@
 **Este archivo es el inventario permanente del proyecto.** Ninguna fuente se elimina
 por no haber podido implementarse: se actualiza su estado y se conserva el motivo.
 
-- **Última actualización:** 2026-11-10 (P1.2, rama `feature/p12-source-expansion`).
-- **Fuentes en el catálogo del motor:** 19 registradas, **17 habilitadas**
-  (11 previas + 6 nuevas operativas en vivo). Dos fuentes nuevas quedan registradas
-  pero deshabilitadas por un bloqueo de `robots.txt` del motor (ver ítems 1 y 7).
-- **Fuentes en este inventario:** 23 evaluadas en P1.2. Las 11 operativas previas y
-  la descartada de P1.1 se listan al final como contexto, sin re-evaluarse.
+- **Última actualización:** 2026-11-10 (P1.3, rama `feature/p13-recover-sources`).
+- **Fuentes en el catálogo del motor:** **22 registradas y 22 habilitadas**.
+  P1.3 corrigió el parser de `robots.txt`, reactivó Alibaba Model Studio y AWS
+  Educate, e incorporó GitHub Student Developer Pack (ofertas propias de GitHub),
+  AWS Activate y Google Skills credits.
+- **Fuentes en este inventario:** 23 evaluadas (P1.2, actualizadas en P1.3). Las 11
+  operativas previas a P1.2 y la descartada de P1.1 se listan al final como contexto.
 - Todas las consultas fueron HTTP GET de lectura a las URLs oficiales, sin claves,
   sin llamadas a modelos y sin consumo de créditos. Fecha de comprobación:
   **2026-11-10** (UTC).
@@ -27,9 +28,9 @@ por no haber podido implementarse: se actualiza su estado y se conserva el motiv
 
 | Estado | Cantidad |
 |---|---|
-| INTEGRADA | 6 |
-| VALIDADA | 3 |
-| BLOQUEADA | 6 |
+| INTEGRADA | 11 |
+| VALIDADA | 0 |
+| BLOQUEADA | 4 |
 | DESCARTADA | 7 |
 | PENDIENTE | 1 |
 | **Total** | **23** |
@@ -38,7 +39,7 @@ por no haber podido implementarse: se actualiza su estado y se conserva el motiv
 
 ## Prioridad alta
 
-### 1. Alibaba Cloud Model Studio — `BLOQUEADA` (extractor listo, robots bloquea)
+### 1. Alibaba Cloud Model Studio — `INTEGRADA` (recuperada en P1.3)
 - **URL:** https://www.alibabacloud.com/help/en/model-studio/new-free-quota
 - **Categoría:** API de inferencia / cuota gratuita · **Prioridad:** alta
 - **HTTP:** 200, 43 463 bytes, 24 304 caracteres de texto.
@@ -60,18 +61,16 @@ por no haber podido implementarse: se actualiza su estado y se conserva el motiv
   deja de publicarlas, devuelve cero candidatos en vez de publicar el beneficio a
   ciegas. Los importes por modelo viven en la consola, no en la página: no se inventan.
 - **Extractor:** `alibaba_free_quota` · **Fixture:** `alibaba-model-studio-free-quota.html`
-- **Bloqueo real (verificado en vivo el 2026-11-10):** el `HttpFetcher` del motor
-  respeta `robots.txt` y devuelve `blocked_by_robots=True`, HTTP 0, **0 candidatos**.
-  La causa **no es una prohibición del sitio**: `www.alibabacloud.com/robots.txt`
-  (478 bytes) no prohíbe `/help/...`, pero el parser mínimo del motor
-  (`ach/fetch.py`, `_Robots.allowed`) reduce cada regla con comodín a su prefijo
-  previo al `*`; reglas como `Disallow: /*.json` o `/*?page=*` producen el prefijo
-  `/`, que bloquea **todo el host**. Es una limitación preexistente del motor.
-- **Decisión:** fuente registrada con `enabled=False` y el motivo en `notes`. El
-  extractor, el fixture y sus pruebas quedan listos y verificados sobre la captura
-  real. **No se sorteó el bloqueo** ni se refactorizó el parser (fuera de alcance).
-- **Pendiente:** corregir el manejo de comodines en `_Robots.allowed` y reactivar
-  (`enabled=True`). Hasta entonces no aporta cobertura en vivo.
+- **Bloqueo resuelto en P1.3:** el parser mínimo de robots reducía cada regla con
+  comodín a su prefijo previo al `*`, así que `Disallow: /*.json` producía el prefijo
+  `/` y bloqueaba todo el host. Se corrigió el emparejamiento (`_robots_match` en
+  `ach/fetch.py`): el comodín vale cualquier secuencia, el resto es literal y se
+  respeta el ancla `$` y la query string. **No se desactivó ni se eludió la
+  protección**: verificado contra las 20 reglas reales del sitio, las rutas
+  prohibidas (`/api/…`, `/*.json`, `/*?page=…`, `/admin`) siguen bloqueadas.
+- **Verificación en vivo (2026-11-10, corrida funcional con base temporal):**
+  HTTP 200, `robots_bloqueado=False`, 1 candidato `PRUEBA_GRATUITA`. Fuente
+  reactivada (`enabled=True`).
 
 ### 2. Cerebras Inference — `INTEGRADA`
 - **URL:** https://inference-docs.cerebras.ai/support/pricing
@@ -112,7 +111,7 @@ por no haber podido implementarse: se actualiza su estado y se conserva el motiv
   un plan pago, y los endpoints son facturables. Queda explícito en `notes`.
 - **Extractor:** `modal_free_credits` · **Fixture:** `modal-free-credits.html`
 
-### 4. GitHub Student Developer Pack — `VALIDADA`
+### 4. GitHub Student Developer Pack — `INTEGRADA` (P1.3, solo ofertas de GitHub)
 - **URL:** https://education.github.com/pack
 - **Categoría:** beneficio estudiantil / pack de terceros · **Prioridad:** alta
 - **HTTP:** 200, 271 368 bytes, 32 327 caracteres de texto.
@@ -121,13 +120,22 @@ por no haber podido implementarse: se actualiza su estado y se conserva el motiv
   free for 1 year».
 - **Condiciones:** elegibilidad estudiantil verificada por GitHub Education.
 - **Tarjeta / país:** depende de cada partner → No confirmado.
-- **Motivo de no integración:** la página es un **catálogo largo de ofertas de
-  terceros**, sin un beneficio único de créditos de IA con cuota y condiciones
-  estables. Extraer una sola entrada sería arbitrario y extraer todas generaría
-  decenas de ofertas ajenas al objetivo. Requiere decidir qué ofertas del pack son
-  relevantes y analizar cada una con su propia página oficial.
-- **Pendiente:** seleccionar ofertas concretas del pack (por ejemplo las de créditos
-  de IA) y validarlas en su fuente oficial, no en este agregador.
+- **Integración en P1.3:** se resolvió el problema de agregación extrayendo
+  **únicamente las ofertas propias de GitHub**, que tienen ancla literal estable,
+  y dejando fuera las de terceros:
+  - «**Free GitHub Pro while you are a student.**»
+  - «**GitHub Copilot Student is available to verified students.** The plan includes
+    unlimited code completions and an allowance of GitHub AI Credits, plus limited
+    chat and agent usage with models available through auto model selection only.»
+- **Condiciones:** estudiantes verificados por GitHub Education. Copilot Student
+  **no** es acceso ilimitado a todos los modelos: chat y agentes quedan limitados a
+  selección automática de modelo. Tarjeta y país: No confirmado.
+- **Clasificación:** `BENEFICIO_ESTUDIANTIL`, `student_required=yes`, sin porcentaje.
+- **Verificación en vivo (2026-11-10):** HTTP 200, **2 candidatos**.
+- **Extractor:** `github_student_pack` (id `github-student-pack`).
+- **Sigue fuera:** las ofertas de terceros del pack (Namecheap, .TECH, Codédex, etc.).
+  No se extrajeron por ser un catálogo ajeno y cambiante; quedan como trabajo
+  pendiente si se quiere ampliar, validando cada una en su propia página oficial.
 
 ### 5. Azure for Students — `INTEGRADA`
 - **URL:** https://azure.microsoft.com/en-us/pricing/offers/ms-azr-0170p
@@ -164,7 +172,7 @@ por no haber podido implementarse: se actualiza su estado y se conserva el motiv
 - **Motivo de aceptación:** importe, validez y política de cargos publicados.
 - **Extractor:** `gcp_free_trial` · **Fixture:** `gcp-free-trial.html`
 
-### 7. AWS Educate — `BLOQUEADA` (extractor listo, robots bloquea)
+### 7. AWS Educate — `INTEGRADA` (recuperada en P1.3)
 - **URL:** https://aws.amazon.com/education/awseducate/
 - **Categoría:** educación / laboratorios gratuitos · **Prioridad:** alta
 - **HTTP:** 200, 380 405 bytes, 8 750 caracteres de texto.
@@ -179,17 +187,16 @@ por no haber podido implementarse: se actualiza su estado y se conserva el motiv
 - **Límite respetado:** **no se inventan créditos para APIs de IA**; la página no los
   publica. Queda explícito en `notes`.
 - **Extractor:** `aws_educate` · **Fixture:** `aws-educate.html`
-- **Bloqueo real (verificado en vivo el 2026-11-10):** mismo caso que Alibaba. El
-  motor devuelve `blocked_by_robots=True`, HTTP 0, **0 candidatos**.
-  `aws.amazon.com/robots.txt` (13 879 bytes, 307 reglas) contiene comodines como
-  `Disallow: /*/blogs/`, que el parser mínimo del motor convierte en el prefijo `/`
-  y bloquean el host completo. La ruta `/education/awseducate/` no está prohibida
-  por una regla literal.
-- **Decisión:** registrada con `enabled=False` y el motivo en `notes`; extractor,
-  fixture y pruebas verificados sobre la captura real. No se sorteó el bloqueo.
-- **Pendiente:** mismo arreglo del parser de robots que Alibaba; reactivar después.
+- **Bloqueo resuelto en P1.3:** mismo defecto y mismo arreglo que Alibaba. De las
+  266 reglas `Disallow` del grupo `*` en `aws.amazon.com/robots.txt`, ninguna
+  prohíbe `/education/awseducate/`; el bloqueo lo causaba el prefijo `/` derivado
+  de comodines como `/*/blogs/*/tag/`. Tras corregir el emparejamiento se verificó
+  que `/blogs/…/tag/…`, `/activate/event/…` y
+  `/government-education/nonprofits/aws-serve/` **siguen bloqueadas**.
+- **Verificación en vivo (2026-11-10):** HTTP 200, `robots_bloqueado=False`,
+  1 candidato `BENEFICIO_ESTUDIANTIL` con `card_required=no`. Fuente reactivada.
 
-### 8. AWS Activate — `VALIDADA`
+### 8. AWS Activate — `INTEGRADA` (P1.3, solo startups)
 - **URL:** https://aws.amazon.com/activate/
 - **Categoría:** cloud / créditos para startups · **Prioridad:** alta
 - **HTTP:** 200, 398 114 bytes, 10 128 caracteres de texto.
@@ -198,12 +205,19 @@ por no haber podido implementarse: se actualiza su estado y se conserva el motiv
 - **Condiciones:** para **startups elegibles**, no necesariamente usuarios
   individuales; el importe es «hasta», no garantizado.
 - **Tarjeta / país:** No confirmado.
-- **Motivo de no integración:** el beneficio es real pero **condicionado a
-  elegibilidad de startup** y con importe variable («up to»). Publicarlo como
-  oportunidad general para un usuario individual sería engañoso. Requiere modelar
-  la elegibilidad (tipo de organización) antes de integrarlo.
-- **Pendiente:** integrar con `eligibility` explícita de startup y sin prometer el
-  importe máximo.
+- **Integración en P1.3:** se incorporó con la elegibilidad explícita, que era el
+  motivo por el que no se integraba. Ancla literal: «Apply to receive **up to
+  $200,000** in AWS Activate Credits to offset costs on infrastructure, data
+  services, and AI/ML models. Credits are redeemable on third-party models on
+  Amazon Bedrock.»
+- **Cómo se evita el engaño:** el título dice «**hasta** USD 200,000 … para startups
+  elegibles»; `eligibility` aclara que son **startups que aplican y son admitidas, no
+  usuarios individuales**, y que el importe es un tope, no una asignación garantizada.
+  `confidence=media` por esa condicionalidad. Se distingue de AWS Educate
+  (estudiantes) y de las ofertas para usuarios individuales.
+- **Clasificación:** `CREDITO`, sin porcentaje.
+- **Verificación en vivo (2026-11-10):** HTTP 200, 1 candidato.
+- **Extractor:** `aws_activate_credits` (id `aws-activate-startups`).
 
 ### 9. Google Gemini API — `BLOQUEADA`
 - **URL:** https://ai.google.dev/gemini-api/docs/pricing/
@@ -358,19 +372,25 @@ por no haber podido implementarse: se actualiza su estado y se conserva el motiv
 - **Observado:** portada de documentación; cero coincidencias de «free» o «credit».
 - **Motivo del descarte:** sin beneficio gratuito documentado en la página consultada.
 
-### 23. Google Cloud para estudiantes — `VALIDADA`
+### 23. Google Cloud para estudiantes — `INTEGRADA` (P1.3, solo Google Skills credits)
 - **URL:** https://cloud.google.com/edu/students
 - **Categoría:** educación / créditos · **Prioridad:** secundaria
 - **HTTP:** 200, 1 620 401 bytes, 39 805 caracteres de texto.
 - **Beneficio detectado:** «**200 free Google Skills credits**. Credits expire one
   year after they are issued», más el «Google Cloud Free Program: $300 in free
   credits and 20+ free products».
-- **Motivo de no integración:** los USD 300 del Free Program **son la misma oferta**
-  que `gcp-free-trial` (ya integrada): extraerlos aquí duplicaría. El beneficio
-  **distinto** son los 200 créditos de Google Skills, con vencimiento a un año.
-- **Pendiente:** integrar solo los 200 Google Skills credits como
-  `BENEFICIO_ESTUDIANTIL`, con `dedupe_extra` propio para no colisionar con el Free
-  Trial. No se hizo en esta ronda para mantener el alcance acotado.
+- **Integración en P1.3:** se integró **solo el beneficio distinto**, los
+  «**200 free Google Skills credits**» con «Credits expire one year after they are
+  issued». Los USD 300 del Free Program **no** se extrajeron aquí porque son la misma
+  oferta que `gcp-free-trial`: así no se duplica.
+- **Condiciones:** publicado en la página de Google Cloud para estudiantes; la página
+  no detalla un requisito de verificación académica para estos créditos, por lo que
+  `student_required=unknown` y no se afirma elegibilidad exclusiva. Vencimiento:
+  un año desde la emisión. Tarjeta y país: No confirmado.
+- **Clasificación:** `BENEFICIO_ESTUDIANTIL`, sin porcentaje.
+- **Verificación en vivo (2026-11-10):** HTTP 200, 1 candidato, clave de dedupe
+  distinta de la del Free Trial.
+- **Extractor:** `gcp_student_skills` (id `gcp-students-skills-credits`).
 
 ---
 
@@ -390,11 +410,11 @@ misma fuente** que Hugging Face Spaces (ítem 20).
 
 | Fuente | Estado | Qué falta |
 |---|---|---|
-| Alibaba Cloud Model Studio | BLOQUEADA | Corregir el manejo de comodines en `_Robots.allowed` (`ach/fetch.py`) y reactivar `enabled=True`. Extractor y fixture ya listos. |
-| AWS Educate | BLOQUEADA | Mismo arreglo de robots que Alibaba. Extractor y fixture ya listos. |
-| GitHub Student Developer Pack | VALIDADA | Elegir ofertas concretas del pack y validarlas en su fuente oficial. |
-| AWS Activate | VALIDADA | Modelar elegibilidad de startup; no prometer el «up to». |
-| Google Cloud estudiantes | VALIDADA | Integrar solo los 200 Google Skills credits, sin duplicar el Free Trial. |
+| ~~Alibaba Cloud Model Studio~~ | INTEGRADA en P1.3 | Nada: robots corregido y reactivada. |
+| ~~AWS Educate~~ | INTEGRADA en P1.3 | Nada: robots corregido y reactivada. |
+| ~~GitHub Student Developer Pack~~ | INTEGRADA en P1.3 | Solo ofertas propias de GitHub. Las de terceros del pack siguen fuera: validar cada una en su página oficial si se quiere ampliar. |
+| ~~AWS Activate~~ | INTEGRADA en P1.3 | Nada: publicado con elegibilidad explícita de startup y como tope, no garantizado. |
+| ~~Google Cloud estudiantes~~ | INTEGRADA en P1.3 | Nada: solo los 200 Google Skills credits, sin duplicar el Free Trial. |
 | Gemini API | BLOQUEADA | Método de extracción estático oficial (la variante `.md` no sirve). |
 | SambaNova Cloud | BLOQUEADA | Acceso: HTTP 403. |
 | NVIDIA API Catalog | BLOQUEADA | Contenido JS; buscar documentación estática. |
