@@ -66,6 +66,28 @@ def mock_http_post_ok(url, headers=None, payload=None, timeout=30):
     }
 
 
+# Catalogo simulado: un modelo pago y otro gratuito por pricing 0.
+OPENROUTER_CATALOG = {"data": [
+    {"id": "openai/gpt-5", "name": "GPT-5",
+     "pricing": {"prompt": "0.000005", "completion": "0.000015"}},
+    {"id": "gratis-por-pricing", "name": "Gratis por pricing",
+     "pricing": {"prompt": "0", "completion": "0"}},
+]}
+
+
+def mock_http_post_openrouter(url, headers=None, payload=None, timeout=30):
+    """Responde segun la URL: catalogo /models o chat/completions.
+
+    Regresion P0.4: assess_cost() consulta el catalogo por la misma via que
+    chat(). Con un mock que solo sabe responder al chat, esa consulta se iba a
+    la red real aunque la prueba pareciera offline.
+    """
+    if url.rstrip("/").endswith("/models"):
+        return OPENROUTER_CATALOG
+    return {"choices": [{"message": {"content": GOOD_JSON}}],
+            "usage": {"total_tokens": 321}}
+
+
 def make_candidate() -> Candidate:
     return Candidate(
         source_id="test-source",
@@ -251,12 +273,75 @@ class ClassifyTestCase(unittest.TestCase):
         self.assertEqual(outcome.cost_status, COST_FREE)
 
     def test_openrouter_paid_model_blocked_without_authorization(self):
+        """P0.4: el catalogo se consulta por el transporte inyectado, sin red.
+
+        El bloqueo sigue siendo real: el modelo figura con pricing distinto de
+        cero, asi que el costo no es verificable como gratuito.
+        """
+        urls = []
+
+        def registro(url, headers=None, payload=None, timeout=30):
+            urls.append(url)
+            return mock_http_post_openrouter(url, headers, payload, timeout)
+
         self.store.set_api_key("openrouter", "sk-or-test")
         self.store.update_routing(primary={"provider": "openrouter", "model": "openai/gpt-5"})
-        outcome = classify_candidate(self.cand, store=self.store,
-                                     http_post=mock_http_post_ok)
+        outcome = classify_candidate(self.cand, store=self.store, http_post=registro)
         self.assertFalse(outcome.ok)
         self.assertEqual(outcome.blocked, BLOCKED_COST)
+        # El resultado agregado no propaga cost_status: el bloqueo por costo
+        # queda registrado en el intento, con su motivo.
+        self.assertEqual(len(outcome.attempts), 1)
+        self.assertEqual(outcome.attempts[0]["blocked"], BLOCKED_COST)
+        self.assertIn("no verificable como gratuito", outcome.attempts[0]["detail"])
+        self.assertTrue(any(u.rstrip("/").endswith("/models") for u in urls), urls)
+        # Bloqueado antes de gastar una llamada de chat.
+        self.assertFalse(any("chat/completions" in u for u in urls), urls)
+
+    def test_openrouter_zero_pricing_model_is_verified_free(self):
+        """La verificacion de gratuidad por pricing 0 se conserva (P0.4)."""
+        self.store.set_api_key("openrouter", "sk-or-test")
+        self.store.update_routing(
+            primary={"provider": "openrouter", "model": "gratis-por-pricing"})
+        outcome = classify_candidate(self.cand, store=self.store,
+                                     http_post=mock_http_post_openrouter)
+        self.assertTrue(outcome.ok)
+        self.assertEqual(outcome.cost_status, COST_FREE)
+
+    def test_openrouter_free_suffix_needs_no_catalog_query(self):
+        """El atajo ':free' sigue sin consultar el catalogo ni la red."""
+        def solo_chat(url, headers=None, payload=None, timeout=30):
+            if url.rstrip("/").endswith("/models"):
+                raise AssertionError("el sufijo :free no debe consultar el catalogo")
+            return mock_http_post_openrouter(url, headers, payload, timeout)
+
+        self.store.set_api_key("openrouter", "sk-or-test")
+        self.store.update_routing(
+            primary={"provider": "openrouter",
+                     "model": "meta-llama/llama-3.3-70b-instruct:free"})
+        outcome = classify_candidate(self.cand, store=self.store, http_post=solo_chat)
+        self.assertTrue(outcome.ok)
+        self.assertEqual(outcome.cost_status, COST_FREE)
+
+    def test_assess_cost_accepts_injected_transport(self):
+        """El seam cubre assess_cost() y list_models(), no solo chat()."""
+        from ach import ai_providers
+        vistas = []
+
+        def transporte(url, headers=None, payload=None, timeout=30):
+            vistas.append(url)
+            return OPENROUTER_CATALOG
+
+        prov = ai_providers.get_provider("openrouter")
+        modelos = prov.list_models("sk-or-test", http_post=transporte)
+        self.assertEqual(len(vistas), 1)
+        self.assertTrue(vistas[0].rstrip("/").endswith("/models"))
+        self.assertEqual(prov.assess_cost("openai/gpt-5", api_key="sk-or-test",
+                                          http_post=transporte), COST_UNKNOWN)
+        self.assertEqual(prov.assess_cost("gratis-por-pricing", api_key="sk-or-test",
+                                          http_post=transporte), COST_FREE)
+        self.assertEqual(len(vistas), 3)
+        self.assertTrue(any(m["id"] == "gratis-por-pricing" and m["free"] for m in modelos))
 
     def test_daily_limit_blocks(self):
         self.store.set_api_key("groq", "gsk_test_123456")

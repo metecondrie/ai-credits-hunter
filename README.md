@@ -124,17 +124,30 @@ python -m unittest discover -s tests -p "test_ach_integration.py"
 Resultado en la versión publicada: **50 pruebas offline en verde** (11 unitarias, 14 de
 extractores, 25 de IA) y **9 de 11 en integración**.
 
-Con P0.1, P0.2 y P0.3 integrados (2026-11-10) el total pasa a **93 casos** (11
-unitarias, **29 de extractores**, **32 de IA** y **21 de semántica de descuentos**):
-+13 por el P0.2, +7 por el P0.1 y +23 por el P0.3. Con los sockets bloqueados y
-bases temporales pasan **92 de 93**; **no debe afirmarse 93/93**. Las 61
-deterministas (11 unitarias + 29 de extractores + 21 de semántica) están en verde
-y de las 32 de IA pasan 31. La restante,
-`test_openrouter_paid_model_blocked_without_authorization`,
-**exige red**: `assess_cost()` llama a `list_models()` sin recibir el `http_post`
-inyectado. Es un problema **preexistente**, ajeno a las correcciones (falla igual
-sobre el `main` anterior con la red bloqueada) y solo pasa si se permite esa salida
-HTTP, así que no debe contarse como prueba offline.
+Con P0.1, P0.2 y P0.3 integrados el total era de 93 casos. Tras corregir la
+dependencia de red de las pruebas de IA (2026-11-10, rama
+`fix/p04-ai-offline-tests`) pasa a **96 casos** (11 unitarias, **29 de
+extractores**, **35 de IA** y **21 de semántica de descuentos**). Con
+`socket.connect`, `connect_ex`, `create_connection`, `getaddrinfo` y
+`urllib.request.urlopen` bloqueados, y bases temporales: **96 de 96 en verde,
+0 fallos, 0 errores y cero intentos de red**. Estas 96 pruebas offline pasan
+sin conexión; la suite de integración live (`tests/test_ach_integration.py`)
+**sigue requiriendo conectividad**, porque consulta las fuentes reales por HTTP
+y depende del contenido cambiante de terceros. Puede omitirse con
+`ACH_OFFLINE=1`, que solo afecta a esa suite.
+
+El caso que antes exigía red,
+`test_openrouter_paid_model_blocked_without_authorization`, era un hueco de
+inyección: `chat()` aceptaba `http_post`, pero `assess_cost()` y `list_models()`
+llamaban a `_http_json` directamente, así que verificar el costo de un modelo
+pago de OpenRouter salía a la red real aunque el chat estuviera mockeado. Ahora
+el mismo transporte inyectable cubre toda la cadena y `_attempt_target()` se lo
+pasa a `assess_cost()`. Con `http_post=None` el camino por defecto es idéntico al
+anterior (`_http_post_json` delega en `_http_json` con los mismos valores), así
+que el comportamiento funcional del cazador no cambia. La verificación de
+gratuidad se conserva: el sufijo `:free` y el pricing 0 siguen dando `COST_FREE`,
+y un modelo con pricing distinto de cero sigue bloqueado por `BLOQUEADO_COST`
+sin autorización explícita.
 
 Las dos pruebas de integración que fallaban (`test_at_least_three_sources_verified` y
 `test_prices_come_from_pages`) dependían de que `deepseek-pricing` extrajera precios:
@@ -245,10 +258,11 @@ Esta versión no declara una licencia; se publica para lectura y evaluación.
    `is_offer NULL` y `error`, suma `ai_blocked` y la corrida **no** se interrumpe ni
    genera una clasificación positiva. Pruebas: 7 casos nuevos en
    `tests/test_ach_ai.py` (`ParseTestCase`, `ClassifyTestCase`,
-   `FullJourneyTestCase`). La suite de IA suma 32 casos: los 7 nuevos son
-   estrictamente offline y se comprobaron en rojo (18 fallos) contra el código
-   previo; del total, 31 pasan con la red bloqueada y uno exige red por un problema
-   preexistente ajeno a esta corrección (ver sección 7). No debe afirmarse 32/32 offline.
+   `FullJourneyTestCase`). La suite de IA sumaba entonces 32 casos: los 7 nuevos
+   son estrictamente offline y se comprobaron en rojo (18 fallos) contra el código
+   previo. En esa entrega uno de los 32 exigía red por un problema preexistente
+   ajeno a esta corrección; quedó resuelto después (ver sección 7) y hoy la suite
+   completa —35 casos— corre sin conexión.
 
    **Sigue abierto** el segundo requisito del ítem: que `is_offer=false` de una IA no
    se confunda con una verificación documental y se presente como candidato rechazado
@@ -357,8 +371,9 @@ Esta versión no declara una licencia; se publica para lectura y evaluación.
    que asumían el 100 % artificial. Offline, con sockets bloqueados y bases
    temporales: **92 de 93 en verde, 0 fallos**; el único error es
    `test_openrouter_paid_model_blocked_without_authorization`, preexistente y
-   ajeno al P0.3 (exige red porque `assess_cost()` no recibe el `http_post`
-   inyectado). Incluyen integridad SQLite, `foreign_key_check` vacío, segunda
+   ajeno al P0.3 (exigía red porque `assess_cost()` no recibía el `http_post`
+   inyectado; **resuelto después**, ver sección 7). Incluyen integridad SQLite,
+   `foreign_key_check` vacío, segunda
    corrida sin duplicados (`offers_new=0`, mismos `offer_id`), evidencia y
    `content_sha256` intactos, y rendered de la interfaz. Contra el código
    original, la suite nueva da 12 fallos y 20 errores, y extractores 3 fallos y 2
