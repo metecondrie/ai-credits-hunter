@@ -156,6 +156,7 @@ def openrouter_free_models(source: Source, res: FetchResult) -> list[Candidate]:
             notes="Precio 0 publicado por el proveedor. No implica cuota ilimitada ni ausencia de limites de uso.",
             dedupe_extra=mid,
             tags=["modelo-gratuito", "api"],
+            benefit_kind="MODELO_GRATUITO",
         ))
     return out
 
@@ -260,6 +261,7 @@ def deepseek_offpeak(source: Source, res: FetchResult) -> list[Candidate]:
                 notes=notes,
                 dedupe_extra=f"{model_name}|{label}",
                 tags=["off-peak", "api"],
+                benefit_kind="TARIFA_HORARIA",
             ))
     return out
 
@@ -281,7 +283,8 @@ def html_free_allocation(source: Source, res: FetchResult) -> list[Candidate]:
     if unit_m:
         unit_price = ht.parse_money(unit_m.group(1))
 
-    discount = 100.0 if unit_price else None
+    # La cuota diaria incluida y el precio del excedente NO son comparables:
+    # distinto periodo, distintos limites y distinto alcance. No hay porcentaje.
     snippet = ht.snippet(text, m.start(), m.end(), 180)
     benefit = p.get("benefit_template", "Asignacion gratuita de {amount}").format(
         amount=amount, unit_price=f"${unit_price:g}" if unit_price is not None else "N/D"
@@ -299,20 +302,25 @@ def html_free_allocation(source: Source, res: FetchResult) -> list[Candidate]:
         evidence_url=source.url,
         evidence_snippet=snippet,
         extraction_rule="html:regex de asignacion gratuita + precio unitario",
-        price_baseline=unit_price,
-        price_offer=0.0 if unit_price else None,
+        price_baseline=None,
+        price_offer=0.0,
         price_unit=p.get("price_unit"),
         currency="USD" if unit_price else None,
-        discount_pct=discount,
+        discount_pct=None,
         eligibility="Plan gratuito del proveedor; el excedente requiere plan pago.",
         card_required="unknown",
         auto_renewal="no",
         argentina_status="ARGENTINA_NO_CONFIRMADA",
         terms_url=source.terms_url,
         confidence="alta",
-        notes="Beneficio y precio unitario leidos de la misma pagina oficial.",
+        notes=(
+            "Cuota gratuita incluida, leida de la pagina oficial. No es un descuento: "
+            "el precio del excedente no es una base comparable (otro periodo y otros "
+            "limites). Sin base verificable, sin porcentaje."
+        ),
         dedupe_extra=source.id,
         tags=["free-tier", "diario"],
+        benefit_kind=p.get("benefit_kind", "CUOTA_GRATUITA"),
     )]
 
 
@@ -431,7 +439,8 @@ def kiro_free_plan(source: Source, res: FetchResult) -> list[Candidate]:
     credits = free.group(1)
     pro = _KIRO_PRO.search(text)
     baseline = ht.parse_money(pro.group(1)) if pro else None
-    discount = 100.0 if baseline else None
+    # FREE y PRO son productos distintos (otros creditos y limites): el precio de
+    # PRO no es una base comparable. Es un plan gratuito permanente, no un 100%.
     snippet = ht.snippet(text, free.start(), free.end(), 140)
     if pro:
         snippet = snippet + " | PRO: " + ht.snippet(text, pro.start(), pro.end(), 40)
@@ -450,20 +459,25 @@ def kiro_free_plan(source: Source, res: FetchResult) -> list[Candidate]:
         evidence_url=source.url,
         evidence_snippet=snippet,
         extraction_rule="html:regex 'KIRO FREE $0 per month N credits' + precio PRO",
-        price_baseline=baseline,
+        price_baseline=None,
         price_offer=0.0,
         price_unit="USD / mes",
         currency="USD",
-        discount_pct=discount,
+        discount_pct=None,
         eligibility="Cuenta Kiro; el plan free no requiere pago.",
         card_required="unknown",
         auto_renewal="no",
         argentina_status="ARGENTINA_NO_CONFIRMADA",
         terms_url=source.terms_url,
         confidence="alta",
-        notes="Creditos y precio leidos de la tabla de precios oficial.",
+        notes=(
+            "Plan gratuito permanente leido de la tabla de precios oficial. No es un "
+            "descuento: FREE y PRO son productos distintos (otros creditos y limites), "
+            "asi que no hay base comparable ni porcentaje."
+        ),
         dedupe_extra=source.id,
         tags=["free-tier", "ide"],
+        benefit_kind="PLAN_GRATUITO",
     )]
 
 
@@ -492,20 +506,26 @@ def html_monthly_credit(source: Source, res: FetchResult) -> list[Candidate]:
         evidence_url=source.url,
         evidence_snippet=snippet,
         extraction_rule="html:regex de credito mensual incluido",
-        price_baseline=amount,
-        price_offer=0.0,
+        # El importe del credito no es un precio de lista: no hay base comparable.
+        price_baseline=None,
+        price_offer=None,
         price_unit="USD / mes",
         currency="USD",
-        discount_pct=100.0,
+        discount_pct=None,
         eligibility="Cuenta/equipo del proveedor; el credito se renueva mensualmente.",
         card_required="unknown",
         auto_renewal="no",
         argentina_status="ARGENTINA_NO_CONFIRMADA",
         terms_url=source.terms_url,
         confidence="alta",
-        notes="Credito declarado en la pagina de precios; no incluye cargos por encima del credito.",
+        notes=(
+            "Credito recurrente declarado en la pagina de precios; no incluye cargos por "
+            "encima del credito. No es un descuento: el importe acreditado no es un precio "
+            "de lista comparable, asi que no hay base verificada ni porcentaje."
+        ),
         dedupe_extra=source.id,
         tags=["creditos", "mensual"],
+        benefit_kind=p.get("benefit_kind", "CREDITO"),
     )]
 
 

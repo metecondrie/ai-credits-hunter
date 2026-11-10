@@ -17,7 +17,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import config, store, web_ai
+from . import classify, config, store, web_ai
 
 CSS = """
 :root{--bg:#0e1116;--panel:#151a22;--line:#232b36;--txt:#e6edf3;--dim:#8b98a9;
@@ -70,9 +70,15 @@ footer{color:var(--dim);font-size:12px;padding:26px 0;text-align:center}
 BANDS = {
     "DESCUENTO_90_PLUS": "b90", "GRATIS_100": "b90",
     "DESCUENTO_70_89": "b70", "DESCUENTO_50_69": "b50",
-    "DESCUENTO_30_49": "b30", "SIN_BASE_VERIFICADA": "bu",
-    "SIN_DESCUENTO": "bu",
+    "DESCUENTO_30_49": "b30",
+    "PLAN_GRATUITO": "bv", "CUOTA_GRATUITA": "bv", "CREDITO": "bv",
+    "PRUEBA_GRATUITA": "bv", "MODELO_GRATUITO": "bv",
+    "SIN_BASE_VERIFICADA": "bu", "SIN_DESCUENTO": "bu",
 }
+
+# La gratuidad se nombra; no se muestra como un porcentaje de descuento.
+# Las etiquetas viven en classify para compartirlas con el reporte y la CLI.
+kind_label = classify.kind_label
 
 
 def esc(v) -> str:
@@ -95,7 +101,8 @@ coincidencia literal en la pagina. Sin APIs pagas.</footer></body></html>"""
 
 def _badge(o: dict) -> str:
     cls = BANDS.get(o["discount_band"], "bu")
-    txt = "sin base" if o["discount_pct"] is None else f"{o['discount_pct']:.0f}%"
+    txt = (kind_label(o["discount_band"]) if o["discount_pct"] is None
+           else f"{o['discount_pct']:.0f}%")
     return f'<span class="badge {cls}">{esc(txt)}</span>'
 
 
@@ -103,8 +110,18 @@ def _price(o: dict) -> str:
     if o["price_offer"] is None:
         return '<span class="muted">N/D</span>'
     unit = f" {o['price_unit']}" if o["price_unit"] else ""
-    base = "" if o["price_baseline"] is None else f'<span class="muted">de {o["price_baseline"]:g}</span> '
+    # El "de X" solo se muestra con un descuento real: sin precios comparables
+    # sugeria una rebaja que no existe.
+    base = ""
+    if o["discount_pct"] is not None and o["price_baseline"] is not None:
+        base = f'<span class="muted">de {o["price_baseline"]:g}</span> '
     return f'{base}<b>{o["price_offer"]:g}</b>{esc(unit)}'
+
+
+def _price_cell(value, unit) -> str:
+    if value is None:
+        return "N/D"
+    return f"{value:g} {esc(unit or '')}".strip()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -239,11 +256,20 @@ class Handler(BaseHTTPRequestHandler):
 <form class="filters" method="get" action="/">
   <input name="q" placeholder="Buscar producto o proveedor" value="{esc(q)}" size="28">
   <select name="band">{opt('', 'Todas las bandas', band)}
-    {opt('GRATIS_100', '100% gratis', band)}
+    <optgroup label="Gratuidad (sin porcentaje)">
+    {opt('PLAN_GRATUITO', 'Plan gratuito permanente', band)}
+    {opt('CUOTA_GRATUITA', 'Cuota gratuita incluida', band)}
+    {opt('MODELO_GRATUITO', 'Modelo gratuito', band)}
+    {opt('CREDITO', 'Credito promocional o recurrente', band)}
+    {opt('PRUEBA_GRATUITA', 'Prueba gratuita', band)}
+    </optgroup>
+    <optgroup label="Descuento porcentual real">
+    {opt('GRATIS_100', '100% con base comparable', band)}
     {opt('DESCUENTO_90_PLUS', '90%+', band)}
     {opt('DESCUENTO_70_89', '70-89%', band)}
-    {opt('DESCUENTO_50_69', '50-69%', band)}
+    {opt('DESCUENTO_50_69', '50-69% (incluye tarifa por horario)', band)}
     {opt('DESCUENTO_30_49', '30-49%', band)}
+    </optgroup>
     {opt('SIN_BASE_VERIFICADA', 'Sin base verificada', band)}
   </select>
   <select name="ar">{opt('', 'Argentina: todas', ar)}
@@ -366,9 +392,9 @@ la verificacion oficial exige coincidencia literal en la pagina (nivel NETWORK_V
   <div class="kv">
     <div>Titulo</div><div>{esc(o['title'])}</div>
     <div>Beneficio</div><div>{esc(o['benefit'])}</div>
-    <div>Precio normal</div><div>{esc(o['price_baseline'])} {esc(o['price_unit'] or '')}</div>
-    <div>Precio oferta</div><div>{esc(o['price_offer'])} {esc(o['price_unit'] or '')}</div>
-    <div>Descuento</div><div>{_badge(o)} {esc(o['discount_band'])}</div>
+    <div>Precio normal</div><div>{_price_cell(o['price_baseline'], o['price_unit'])}</div>
+    <div>Precio oferta</div><div>{_price_cell(o['price_offer'], o['price_unit'])}</div>
+    <div>Beneficio</div><div>{_badge(o)} {esc(o['discount_band'])}</div>
     <div>Argentina</div><div>{esc(o['argentina_status'])}</div>
     <div>Tarjeta</div><div>{esc(o['card_required'])}</div>
     <div>Auto-renovacion</div><div>{esc(o['auto_renewal'])}</div>

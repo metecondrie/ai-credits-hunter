@@ -76,7 +76,8 @@ def cmd_list(args) -> int:
         if not rows:
             print("0 ofertas. (Una busqueda sin coincidencias no genera resultados de relleno.)")
         for o in rows:
-            disc = "sin base" if o["discount_pct"] is None else f"{o['discount_pct']:.0f}%"
+            disc = (classify.kind_label(o["discount_band"]) if o["discount_pct"] is None
+                    else f"{o['discount_pct']:.0f}%")
             print(f"#{o['offer_id']:<4} {o['provider_name'][:16]:<16} "
                   f"{o['product'][:44]:<44} {disc:>8}  {o['verification_level']:<16} "
                   f"{o['argentina_status']}")
