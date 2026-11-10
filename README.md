@@ -130,8 +130,11 @@ dependencia de red de las pruebas de IA (2026-11-10, rama
 extractores**, **35 de IA** y **21 de semántica de descuentos**). Con
 `socket.connect`, `connect_ex`, `create_connection`, `getaddrinfo` y
 `urllib.request.urlopen` bloqueados, y bases temporales: **96 de 96 en verde,
-0 fallos, 0 errores y cero intentos de red**. Ninguna prueba automatizada
-depende ya de Internet.
+0 fallos, 0 errores y cero intentos de red**. Estas 96 pruebas offline pasan
+sin conexión; la suite de integración live (`tests/test_ach_integration.py`)
+**sigue requiriendo conectividad**, porque consulta las fuentes reales por HTTP
+y depende del contenido cambiante de terceros. Puede omitirse con
+`ACH_OFFLINE=1`, que solo afecta a esa suite.
 
 El caso que antes exigía red,
 `test_openrouter_paid_model_blocked_without_authorization`, era un hueco de
