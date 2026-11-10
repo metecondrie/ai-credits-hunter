@@ -446,28 +446,55 @@ la verificacion oficial exige coincidencia literal en la pagina (nivel NETWORK_V
 
     def _descubiertos(self) -> str:
         from . import discover
-        cands = discover.load_candidates()
-        body = "".join(f"""<tr><td><b>{esc(c.get('title', ''))}</b>
+        cands = discover.sorted_candidates()
+        colores = {discover.STATUS_VERIFIED: "bv", discover.STATUS_REVIEW: "b50",
+                   discover.STATUS_PENDING: "bu", discover.STATUS_ERROR: "b90",
+                   discover.STATUS_DISCARDED: "bu"}
+        filas = []
+        for c in cands:
+            st = c.get("status", discover.STATUS_PENDING)
+            cond = c.get("conditions") or {}
+            detalles = ""
+            if c.get("reason"):
+                detalles += f"<div class='muted'><b>Motivo:</b> {esc(c['reason'])}</div>"
+            for e in c.get("evidence", [])[:2]:
+                detalles += f"<div class='muted'><b>Evidencia:</b> {esc(e[:300])}</div>"
+            if cond:
+                detalles += (
+                    "<div class='muted'><b>Condiciones:</b> "
+                    f"importe={esc(cond.get('importe', 'No confirmado'))} · "
+                    f"duraci&oacute;n={esc(cond.get('duracion', 'No confirmado'))} · "
+                    f"tarjeta={esc(cond.get('tarjeta', 'No confirmado'))} · "
+                    f"elegibilidad={esc(cond.get('elegibilidad', 'No confirmado'))} · "
+                    f"geograf&iacute;a={esc(cond.get('geografia', 'No confirmado'))} · "
+                    f"Argentina={esc(cond.get('argentina', 'No confirmado'))}</div>")
+            if c.get("aplicabilidad"):
+                detalles += (f"<div style='color:var(--warn)'><b>Aplicabilidad:</b> "
+                             f"{esc(c['aplicabilidad'])}</div>")
+            filas.append(f"""<tr><td><b>{esc(c.get('title', ''))}</b>
 <div class="muted"><a href="{esc(c['url'])}" target="_blank" rel="noopener">{esc(c['url'])}</a></div>
-<div class="muted">{esc(c.get('snippet', '')[:220])}</div></td>
+<div class="muted">{esc(c.get('snippet', '')[:200])}</div>{detalles}</td>
 <td>{esc(c.get('provider', ''))}</td>
 <td>{esc(c.get('discovered_in', ''))}</td>
 <td class="muted">{esc(c.get('published_at') or 'N/D')}</td>
-<td class="muted">{esc(c.get('discovered_at_utc', ''))}</td>
-<td><span class="badge bu">{esc(c.get('status', discover.STATUS_PENDING))}</span></td></tr>"""
-                        for c in cands)
+<td class="muted">{esc(c.get('checked_at_utc') or 'nunca')}</td>
+<td><span class="badge {colores.get(st, 'bu')}">{esc(st)}</span></td></tr>""")
+        body = "".join(filas)
         vacio = ('<div class="panel"><h2>Sin candidatos descubiertos</h2>'
                  '<p class="muted">Ejecuta <code>python -m ach discover</code>. '
                  'Una busqueda sin coincidencias no genera resultados de relleno.</p></div>')
-        tabla = (f"""<table><thead><tr><th>Enlace y fragmento</th><th>Proveedor</th>
-<th>Feed</th><th>Publicado</th><th>Descubierto</th><th>Estado</th></tr></thead>
+        tabla = (f"""<table><thead><tr><th>Enlace, evidencia y condiciones</th><th>Proveedor</th>
+<th>Feed</th><th>Publicado</th><th>Comprobado</th><th>Estado</th></tr></thead>
 <tbody>{body}</tbody></table>""" if cands else vacio)
+        documentadas = sum(1 for c in cands if c.get("status") == discover.STATUS_VERIFIED)
+        pendientes = sum(1 for c in cands if c.get("status") == discover.STATUS_PENDING)
         return f"""<h2>Enlaces descubiertos ({len(cands)})</h2>
 <div class="panel" style="border-color:var(--warn);margin-bottom:14px">
-<b style="color:var(--warn)">No son ofertas verificadas.</b>
-<span class="muted">Son enlaces encontrados en feeds oficiales, pendientes de
-comprobar contenido y condiciones. No se promueven al catalogo de extractores
-ni se marcan NETWORK_VERIFIED.</span></div>{tabla}"""
+<b style="color:var(--warn)">La verificacion documental no garantiza vigencia comercial ni elegibilidad.</b>
+<span class="muted">Son enlaces de feeds oficiales. {documentadas} con beneficio documentado,
+{pendientes} pendientes de comprobar. Ninguno se convierte automaticamente en oferta del
+catalogo ni se marca NETWORK_VERIFIED. Verificar con <code>python -m ach discover --verify</code>
+(maximo 10 por ejecucion, sin navegacion recursiva, robots respetado).</span></div>{tabla}"""
 
     def _runs(self) -> str:
         conn = self._conn()

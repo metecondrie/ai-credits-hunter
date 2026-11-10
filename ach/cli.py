@@ -108,15 +108,41 @@ def cmd_sources(args) -> int:
 def cmd_discover(args) -> int:
     from . import discover
     destino = Path(args.out) if args.out else None
+    if args.verify:
+        res = discover.verify_candidates(path=destino, limit=args.limit)
+        print(f"Candidatos examinados: {res['examined']} (tope {args.limit}) | "
+              f"pendientes restantes: {res['pending_left']}")
+        for c in res["results"]:
+            print(f"\n  [{c['status']}] {c.get('title', '')[:74]}")
+            print(f"      {c['url']}  (HTTP {c.get('http_status', '-')})")
+            print(f"      motivo: {c.get('reason', '')}")
+            for e in c.get("evidence", [])[:2]:
+                print(f"      evidencia: {e[:240]}")
+            cond = c.get("conditions") or {}
+            if cond:
+                print(f"      importe={cond.get('importe')} | duracion={cond.get('duracion')}")
+                print(f"      tarjeta={cond.get('tarjeta')} | elegibilidad={cond.get('elegibilidad')}")
+                print(f"      geografia={cond.get('geografia')} | argentina={cond.get('argentina')} "
+                      f"| IA={cond.get('relacionado_con_ia')}")
+            if c.get("aplicabilidad"):
+                print(f"      aplicabilidad: {c['aplicabilidad']}")
+        print(f"\nResumen: {res['by_status'] or '{}'}")
+        print("La verificacion documental no garantiza vigencia comercial ni elegibilidad.")
+        print("Ningun candidato se convierte en oferta del catalogo.")
+        print(f"Archivo: {res['path']}")
+        return 0
     if args.list:
-        cands = discover.load_candidates(destino)
-        print(f"{len(cands)} candidatos guardados. Estado: {discover.STATUS_PENDING}.")
+        cands = discover.sorted_candidates(destino)
+        print(f"{len(cands)} candidatos guardados (documentados primero).")
         for c in cands:
-            print(f"  [{c.get('provider', '?')}] {c.get('title', '')[:72]}")
+            print(f"  [{c.get('status', discover.STATUS_PENDING)}] "
+                  f"[{c.get('provider', '?')}] {c.get('title', '')[:66]}")
             print(f"      {c['url']}")
             print(f"      via={c.get('discovered_in', '')} "
                   f"publicado={c.get('published_at') or 'N/D'} "
-                  f"descubierto={c.get('discovered_at_utc', '')}")
+                  f"comprobado={c.get('checked_at_utc') or 'nunca'}")
+            if c.get("reason"):
+                print(f"      motivo: {c['reason'][:150]}")
         if not cands:
             print("  (vacio: una busqueda sin coincidencias no genera resultados de relleno.)")
         return 0
@@ -388,6 +414,10 @@ def build_parser() -> argparse.ArgumentParser:
                          help="descubre enlaces candidatos en feeds oficiales (no verificados)")
     dsc.add_argument("--list", action="store_true",
                      help="muestra los candidatos guardados sin consultar la red")
+    dsc.add_argument("--verify", action="store_true",
+                     help="visita los candidatos pendientes y verifica su contenido")
+    dsc.add_argument("--limit", type=int, default=10,
+                     help="tope de candidatos a verificar por ejecucion (por defecto 10)")
     dsc.add_argument("--out", help="JSON de candidatos (por defecto data/discovered_candidates.json)")
     dsc.add_argument("--max-items", type=int, default=100,
                      help="tope de items por feed (por defecto 100)")

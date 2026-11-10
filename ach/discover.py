@@ -222,3 +222,216 @@ def discover(fetcher: HttpFetcher | None = None,
         "total_saved": len(existing) + len(nuevos),
         "path": str(Path(path) if path else CANDIDATES_PATH),
     }
+
+
+# --------------------------------------------------------------------------
+# Verificacion documental de candidatos (P1.5)
+# --------------------------------------------------------------------------
+STATUS_VERIFIED = "VERIFICADO_DOCUMENTAL"
+STATUS_DISCARDED = "DESCARTADO"
+STATUS_REVIEW = "REQUIERE_REVISION"
+STATUS_ERROR = "ERROR_VERIFICACION"
+NO_CONFIRMADO = "No confirmado"
+MAX_VERIFY = 10
+
+# Orden de presentacion: primero lo documentado, despues lo pendiente.
+STATUS_ORDER = {STATUS_VERIFIED: 0, STATUS_REVIEW: 1, STATUS_PENDING: 2,
+                STATUS_ERROR: 3, STATUS_DISCARDED: 4}
+
+# Intencion de oferta dirigida al lector. Se evitan verbos genericos como
+# "including" o "receive", que aparecen en cualquier prosa o en la navegacion.
+_OFFER_INTENT = re.compile(
+    r"(you can|you get|you'll get|we offer|get started|sign up|sign-up|"
+    r"at no charge|at no cost|no cost to|free for|free to|up to \$|"
+    r"during the preview|for a limited time|no credit card required|"
+    r"you receive|can order|available at no)", re.I)
+
+# Contexto ajeno a una oferta: facturacion, contabilidad o relato de un tercero.
+_NON_OFFER = re.compile(
+    r"(amortiz\w*|billing|invoice|cost after|led to|tracked|case study|"
+    r"customer story|\broi\b|paid subscriptions|revenue|accounting|"
+    r"how often|success story|customers around the world)", re.I)
+
+# IA: se exigen terminos especificos. "model" o "ML" sueltos aparecen en la
+# navegacion de cualquier sitio de cloud y daban falsos positivos.
+_AI_CONTEXT = re.compile(
+    r"(\bai\b|artificial intelligence|machine learning|\bllm\b|\bllms\b|"
+    r"inference|generative|\bgpu\b|bedrock|chatgpt|copilot|sagemaker|"
+    r"inteligencia artificial|ia generativa)", re.I)
+
+# Empresarial: sin "customers" ni "teams", que son ruido de navegacion.
+_ENTERPRISE = re.compile(
+    r"(enterprise|organizations?|for business|startups?|companies|corporate|"
+    r"data center|direct connect|interconnect|colocation)", re.I)
+_STUDENT = re.compile(r"(verified students?|for students|student pack|"
+                      r"education discount|academic|scholarship)", re.I)
+_INDIVIDUAL = re.compile(r"(anyone|individual|personal use|new users?|everyone|"
+                           r"for developers)", re.I)
+
+
+def _oracion(text: str, pos: int) -> str:
+    """Oracion que contiene la posicion: evita evaluar navegacion o pie de pagina."""
+    lo = max(text.rfind(". ", 0, pos), text.rfind("\n", 0, pos)) + 1
+    hi = text.find(". ", pos)
+    if hi < 0:
+        hi = min(len(text), pos + 400)
+    return collapse(text[lo:hi + 1])
+
+
+def _first(pattern, text: str) -> str:
+    m = re.search(pattern, text, re.I)
+    return collapse(m.group(0)) if m else NO_CONFIRMADO
+
+
+def _condiciones(text: str, evidencia: str) -> dict:
+    """Extrae solo lo publicado; lo ausente queda 'No confirmado'.
+
+    Importe, duracion, tarjeta y elegibilidad se buscan en la evidencia del
+    beneficio, no en toda la pagina: el menu y el pie traen condiciones ajenas.
+    """
+    foco = evidencia or text
+    tarjeta = NO_CONFIRMADO
+    if re.search(r"no credit card (required|needed)|without (a )?credit card", foco, re.I):
+        tarjeta = "no"
+    elif re.search(r"(credit card|payment method|valid payment|card to verify)", foco, re.I):
+        tarjeta = "si (se menciona metodo de pago o tarjeta)"
+    if _STUDENT.search(foco):
+        elegibilidad = "estudiantil"
+    elif _ENTERPRISE.search(foco):
+        elegibilidad = "empresarial"
+    elif _INDIVIDUAL.search(foco):
+        elegibilidad = "individual"
+    elif _ENTERPRISE.search(text):
+        elegibilidad = "empresarial (contexto de la pagina, no del fragmento)"
+    else:
+        elegibilidad = NO_CONFIRMADO
+    geo = _first(r"(available in [A-Z][^.;]{0,80}|[A-Z][a-z]+ \([A-Z][a-z .]+\) Region|Argentina)", foco)
+    return {
+        "importe": _first(r"(US[D\$]\s?[\d,.]+|\$\s?[\d,.]+|\d[\d,]*\s+(free )?credits?|\d+\s+Gbps)", foco),
+        "duracion": _first(r"(during the preview|for a limited time|\d+\s+(days|months|years)|one year|until [A-Z][a-z]+ \d{1,2})", foco),
+        "tarjeta": tarjeta,
+        "elegibilidad": elegibilidad,
+        "geografia": geo,
+        "argentina": "mencionada (revisar contexto)" if re.search(r"argentina", foco, re.I) else NO_CONFIRMADO,
+        "relacionado_con_ia": bool(_AI_CONTEXT.search(foco)),
+    }
+
+
+def _evaluar_texto(text: str) -> tuple[str, str, list[str]]:
+    """Decide el estado por la ORACION que contiene el beneficio, sin prejuzgar.
+
+    Evaluar una ventana amplia alrededor de la frase contaminaba el resultado
+    con la navegacion y los CTA del sitio (un 'free trial' del menu no es una
+    oferta del articulo). Se descartan fragmentos cortos, tipicos de menu.
+    """
+    fuertes, ruido, ambiguas = [], [], []
+    vistas = set()
+    for m in _RELEVANCE.finditer(text):
+        oracion = _oracion(text, m.start())
+        if len(oracion) < 30 or oracion in vistas:
+            continue
+        vistas.add(oracion)
+        intent = _OFFER_INTENT.search(oracion)
+        ajeno = _NON_OFFER.search(oracion)
+        if intent and not ajeno:
+            fuertes.append(oracion)
+        elif ajeno:
+            ruido.append(oracion)
+        else:
+            ambiguas.append(oracion)
+
+    if not (fuertes or ruido or ambiguas):
+        return (STATUS_DISCARDED,
+                "La pagina no contiene lenguaje de beneficio en contenido legible: "
+                "la frase del feed no aparece o solo esta en navegacion.", [])
+    if fuertes:
+        return (STATUS_VERIFIED,
+                "Beneficio explicito en la misma oracion, con intencion de oferta "
+                "dirigida al usuario (gratuidad, disponibilidad o plazo declarado).",
+                fuertes[:3])
+    if ruido and not ambiguas:
+        return (STATUS_DISCARDED,
+                "La frase de beneficio aparece en contexto ajeno a una oferta "
+                "(facturacion, contabilidad o relato de un tercero): falso positivo.",
+                ruido[:3])
+    return (STATUS_REVIEW,
+            "Hay lenguaje de beneficio pero la oracion es ambigua o no aclara "
+            "elegibilidad ni condiciones: requiere revision humana.",
+            (ambiguas or ruido)[:3])
+
+
+def verify_candidate(c: dict, fetcher: HttpFetcher) -> dict:
+    """Visita una URL y devuelve los campos de verificacion para ese candidato."""
+    url = c.get("url", "")
+    base = {"verification_url": url, "checked_at_utc": utcnow()}
+    try:
+        res = fetcher.fetch(url)
+    except Exception as exc:                       # red caida, timeout, TLS
+        return {**base, "status": STATUS_ERROR,
+                "reason": f"Fallo de transporte: {type(exc).__name__}: {str(exc)[:160]}",
+                "evidence": [], "http_status": 0, "conditions": {}}
+    base["http_status"] = res.status
+    if res.blocked_by_robots:
+        return {**base, "status": STATUS_ERROR,
+                "reason": "robots.txt prohibe la ruta: no se visita ni se elude el bloqueo.",
+                "evidence": [], "conditions": {}}
+    if res.status != 200 or not res.text:
+        return {**base, "status": STATUS_ERROR,
+                "reason": f"Pagina inaccesible (HTTP {res.status}). {res.error or ''}".strip(),
+                "evidence": [], "conditions": {}}
+
+    from .htmltext import to_text
+    text = to_text(res.text)
+    if len(text) < 200:
+        return {**base, "status": STATUS_ERROR,
+                "reason": "La pagina no sirve contenido legible (probable render por "
+                          "JavaScript): no hay evidencia literal que comprobar.",
+                "evidence": [], "conditions": {}}
+
+    status, reason, evidencia = _evaluar_texto(text)
+    cond = _condiciones(text, " ".join(evidencia))
+    aplicabilidad = ""
+    if status == STATUS_VERIFIED:
+        if cond["elegibilidad"].startswith("empresarial"):
+            aplicabilidad = ("Oferta genuina pero de alcance EMPRESARIAL: no aplicable a "
+                             "usuarios individuales.")
+        if not cond["relacionado_con_ia"]:
+            aplicabilidad = (aplicabilidad + " No se detecta relacion explicita con IA "
+                             "en el contenido: infraestructura o servicio general.").strip()
+    return {**base, "status": status, "reason": reason, "evidence": evidencia,
+            "conditions": cond, "aplicabilidad": aplicabilidad,
+            "content_sha256": res.sha256 or ""}
+
+
+def verify_candidates(path: Path | None = None,
+                      fetcher: HttpFetcher | None = None,
+                      limit: int = MAX_VERIFY) -> dict:
+    """Verifica hasta `limit` candidatos pendientes, sin navegacion recursiva."""
+    f = fetcher or HttpFetcher()
+    todos = load_candidates(path)
+    pendientes = [c for c in todos if c.get("status") == STATUS_PENDING][:max(0, limit)]
+    resultados = []
+    for c in pendientes:
+        upd = verify_candidate(c, f)
+        c.update(upd)
+        resultados.append(c)
+    if resultados:
+        save_candidates(todos, path)
+    conteo = {}
+    for c in resultados:
+        conteo[c["status"]] = conteo.get(c["status"], 0) + 1
+    return {
+        "examined": len(resultados),
+        "pending_left": sum(1 for c in todos if c.get("status") == STATUS_PENDING),
+        "by_status": conteo,
+        "results": resultados,
+        "total_saved": len(todos),
+        "path": str(Path(path) if path else CANDIDATES_PATH),
+    }
+
+
+def sorted_candidates(path: Path | None = None) -> list[dict]:
+    """Documentadas primero, pendientes despues; el resto al final."""
+    return sorted(load_candidates(path),
+                  key=lambda c: (STATUS_ORDER.get(c.get("status", ""), 9),
+                                 c.get("discovered_at_utc", "")))
