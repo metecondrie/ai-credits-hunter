@@ -124,13 +124,15 @@ python -m unittest discover -s tests -p "test_ach_integration.py"
 Resultado en la versión publicada: **50 pruebas offline en verde** (11 unitarias, 14 de
 extractores, 25 de IA) y **9 de 11 en integración**.
 
-Con P0.1 y P0.2 integrados (2026-11-10) el total pasa a **70 casos** (11 unitarias,
-**27 de extractores**, **32 de IA**): +13 por el P0.2 y +7 por el P0.1. Con los
-sockets bloqueados y bases temporales pasan **69 de 70**; **no debe afirmarse 70/70**.
-Las 38 deterministas (11 unitarias + 27 de extractores) están en verde y de las 32 de
-IA pasan 31. La restante, `test_openrouter_paid_model_blocked_without_authorization`,
+Con P0.1, P0.2 y P0.3 integrados (2026-11-10) el total pasa a **93 casos** (11
+unitarias, **29 de extractores**, **32 de IA** y **21 de semántica de descuentos**):
++13 por el P0.2, +7 por el P0.1 y +23 por el P0.3. Con los sockets bloqueados y
+bases temporales pasan **92 de 93**; **no debe afirmarse 93/93**. Las 61
+deterministas (11 unitarias + 29 de extractores + 21 de semántica) están en verde
+y de las 32 de IA pasan 31. La restante,
+`test_openrouter_paid_model_blocked_without_authorization`,
 **exige red**: `assess_cost()` llama a `list_models()` sin recibir el `http_post`
-inyectado. Es un problema **preexistente**, ajeno a ambas correcciones (falla igual
+inyectado. Es un problema **preexistente**, ajeno a las correcciones (falla igual
 sobre el `main` anterior con la red bloqueada) y solo pasa si se permite esa salida
 HTTP, así que no debe contarse como prueba offline.
 
