@@ -193,8 +193,11 @@ def _attempt_target(target: Dict[str, str], messages, store: AISettingsStore,
         api_key = ""
 
     # Regla de costo: verificar gratuidad o exigir autorizacion explicita.
+    # La consulta al catalogo usa el mismo transporte inyectable que chat():
+    # sin esto, verificar el costo de un modelo pago salia a la red real.
     cost_status = provider.assess_cost(model, api_key=api_key,
-                                       base_url=settings.get("base_url", ""))
+                                       base_url=settings.get("base_url", ""),
+                                       http_post=http_post)
     if cost_status == COST_UNKNOWN and not settings.get("allow_unverified_cost"):
         return ClassifyOutcome(
             ok=False, provider=pid, model=model, cost_status=cost_status,

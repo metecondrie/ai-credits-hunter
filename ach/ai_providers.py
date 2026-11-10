@@ -88,7 +88,8 @@ class BaseProvider:
     needs_key = True
     free_tier_info = ""
 
-    def list_models(self, api_key: str, base_url: str = "") -> List[Dict[str, Any]]:
+    def list_models(self, api_key: str, base_url: str = "",
+                    http_post: Optional[HttpPostFn] = None) -> List[Dict[str, Any]]:
         raise NotImplementedError
 
     def chat(self, api_key: str, model: str, messages: List[Dict[str, str]],
@@ -96,7 +97,8 @@ class BaseProvider:
              http_post: Optional[HttpPostFn] = None) -> ChatResult:
         raise NotImplementedError
 
-    def assess_cost(self, model: str, api_key: str = "", base_url: str = "") -> str:
+    def assess_cost(self, model: str, api_key: str = "", base_url: str = "",
+                    http_post: Optional[HttpPostFn] = None) -> str:
         """COST_FREE solo si la gratuidad es verificable; si no, COST_UNKNOWN."""
         return COST_UNKNOWN
 
@@ -126,9 +128,11 @@ class GeminiProvider(BaseProvider):
         "salvo autorizacion explicita."
     )
 
-    def list_models(self, api_key: str, base_url: str = "") -> List[Dict[str, Any]]:
+    def list_models(self, api_key: str, base_url: str = "",
+                    http_post: Optional[HttpPostFn] = None) -> List[Dict[str, Any]]:
         base = (base_url or GEMINI_BASE).rstrip("/")
-        data = _http_json(f"{base}/models?key={api_key}&pageSize=1000")
+        post = http_post or _http_post_json
+        data = post(f"{base}/models?key={api_key}&pageSize=1000")
         models = []
         for m in data.get("models", []):
             name = str(m.get("name", ""))
@@ -171,10 +175,12 @@ class _OpenAIStyleProvider(BaseProvider):
     def _headers(self, api_key: str) -> Dict[str, str]:
         return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-    def list_models(self, api_key: str, base_url: str = "") -> List[Dict[str, Any]]:
+    def list_models(self, api_key: str, base_url: str = "",
+                    http_post: Optional[HttpPostFn] = None) -> List[Dict[str, Any]]:
         base = (base_url or self.default_base).rstrip("/")
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        data = _http_json(f"{base}/models", headers=headers)
+        post = http_post or _http_post_json
+        data = post(f"{base}/models", headers=headers)
         return [{"id": str(m.get("id", "")), "label": str(m.get("id", "")),
                  "free": False, "free_hint": "Costo no verificable desde la API"}
                 for m in data.get("data", []) if m.get("id")]
@@ -214,10 +220,12 @@ class OpenRouterProvider(_OpenAIStyleProvider):
         "o con pricing 0. Esos se marcan GRATIS y no requieren autorizacion extra."
     )
 
-    def list_models(self, api_key: str, base_url: str = "") -> List[Dict[str, Any]]:
+    def list_models(self, api_key: str, base_url: str = "",
+                    http_post: Optional[HttpPostFn] = None) -> List[Dict[str, Any]]:
         base = (base_url or self.default_base).rstrip("/")
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        data = _http_json(f"{base}/models", headers=headers)
+        post = http_post or _http_post_json
+        data = post(f"{base}/models", headers=headers)
         models = []
         for m in data.get("data", []):
             model_id = str(m.get("id", ""))
@@ -240,11 +248,12 @@ class OpenRouterProvider(_OpenAIStyleProvider):
         except (TypeError, ValueError):
             return False
 
-    def assess_cost(self, model: str, api_key: str = "", base_url: str = "") -> str:
+    def assess_cost(self, model: str, api_key: str = "", base_url: str = "",
+                    http_post: Optional[HttpPostFn] = None) -> str:
         if model.endswith(":free"):
             return COST_FREE
         try:
-            models = self.list_models(api_key, base_url=base_url)
+            models = self.list_models(api_key, base_url=base_url, http_post=http_post)
         except ProviderError:
             return COST_UNKNOWN
         for m in models:
@@ -266,8 +275,10 @@ class OpenAICompatibleProvider(_OpenAIStyleProvider):
             raise ProviderError("Falta la Base URL del proveedor compatible.")
         return base_url.rstrip("/")
 
-    def list_models(self, api_key: str, base_url: str = "") -> List[Dict[str, Any]]:
-        return super().list_models(api_key, base_url=self._require_base(base_url))
+    def list_models(self, api_key: str, base_url: str = "",
+                    http_post: Optional[HttpPostFn] = None) -> List[Dict[str, Any]]:
+        return super().list_models(api_key, base_url=self._require_base(base_url),
+                                   http_post=http_post)
 
     def chat(self, api_key: str, model: str, messages, base_url: str = "",
              max_tokens: int = 1024, http_post: Optional[HttpPostFn] = None) -> ChatResult:
@@ -288,11 +299,13 @@ class DemoLocalProvider(BaseProvider):
     needs_key = False
     free_tier_info = "Proveedor de demostracion local. No contacta ninguna API real."
 
-    def list_models(self, api_key: str = "", base_url: str = "") -> List[Dict[str, Any]]:
+    def list_models(self, api_key: str = "", base_url: str = "",
+                    http_post: Optional[HttpPostFn] = None) -> List[Dict[str, Any]]:
         return [{"id": "demo-clasificador-1", "label": "Clasificador DEMO (local)",
                  "free": True, "free_hint": "Demo local sin red"}]
 
-    def assess_cost(self, model: str, api_key: str = "", base_url: str = "") -> str:
+    def assess_cost(self, model: str, api_key: str = "", base_url: str = "",
+                    http_post: Optional[HttpPostFn] = None) -> str:
         return COST_DEMO
 
     def chat(self, api_key: str, model: str, messages, base_url: str = "",
