@@ -165,10 +165,18 @@ def openrouter_free_models(source: Source, res: FetchResult) -> list[Candidate]:
 # --------------------------------------------------------------------------
 _DEEPSEEK_BLOCK = re.compile(
     r"(1M INPUT TOKENS\s+\(CACHE HIT\)|1M INPUT TOKENS\s+\(CACHE MISS\)|1M OUTPUT TOKENS)\s+"
-    r"OFF-PEAK\s+\$([\d.]+)(?:\s+\$([\d.]+))?\s+"
-    r"PEAK\s+\$([\d.]+)(?:\s+\$([\d.]+))?",
+    r"OFF-PEAK\s+(\$[\d.]+(?:\s+\$[\d.]+)*)\s+"
+    r"PEAK\s+(\$[\d.]+(?:\s+\$[\d.]+)*)",
     re.I,
 )
+_DEEPSEEK_PRICE = re.compile(r"\$([\d.]+)")
+# La tabla tiene una columna por modelo, en el orden del encabezado MODEL.
+# Se exige que la linea empiece con un nombre deepseek- para no capturar
+# "MODEL VERSION" ni los nombres retirados que aparecen en las notas al pie.
+_DEEPSEEK_MODEL_ROW = re.compile(r"^MODEL\s+(deepseek-[^\n]+)$", re.I | re.M)
+_DEEPSEEK_MODEL_NAME = re.compile(r"\bdeepseek-[a-z0-9.\-]+", re.I)
+_DEEPSEEK_WINDOW = re.compile(r"(Peak hours are\s+.+?UTC[^.]*\.)", re.I)
+_DEEPSEEK_OFFPEAK_REST = re.compile(r"(All other hours are off-peak[^.]*\.)", re.I)
 
 _LABEL_HUMAN = {
     "1M INPUT TOKENS (CACHE HIT)": "entrada con cache hit",
@@ -185,64 +193,74 @@ def deepseek_offpeak(source: Source, res: FetchResult) -> list[Candidate]:
     if not claim:
         return []
 
-    model = re.search(r"\bMODEL\s+(deepseek-[a-z0-9.\-]+)", text, re.I)
-    model_name = model.group(1) if model else "DeepSeek API"
+    header = _DEEPSEEK_MODEL_ROW.search(text)
+    models = _DEEPSEEK_MODEL_NAME.findall(header.group(1)) if header else []
 
     window = None
-    peak = re.search(
-        r"Peak hours are\s+([\d:]{4,5}\s*-\s*[\d:]{4,5})\s+and\s+([\d:]{4,5}\s*-\s*[\d:]{4,5})\s+UTC",
-        text, re.I,
-    )
+    window_utc = None
+    peak = _DEEPSEEK_WINDOW.search(text)
     if peak:
-        ranges = []
-        for grp in peak.groups():
-            a, b = [x.strip() for x in grp.split("-")]
-            ranges.append((a, b))
-        window = _art_window(ranges)
+        window_utc = ht.collapse(peak.group(1))
+        ranges = re.findall(r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})", peak.group(1))
+        if ranges:
+            window = _art_window(ranges)
+    rest = _DEEPSEEK_OFFPEAK_REST.search(text)
+    offpeak_rest = ht.collapse(rest.group(1)) if rest else ""
 
     out: list[Candidate] = []
     for m in _DEEPSEEK_BLOCK.finditer(text):
         label = re.sub(r"\s+", " ", m.group(1)).strip().upper()
         human = _LABEL_HUMAN.get(label, label.lower())
-        off = ht.parse_money(m.group(2))
-        peak_price = ht.parse_money(m.group(4))
-        if off is None or peak_price is None or peak_price <= 0:
-            continue
-        discount = round(100.0 * (1.0 - off / peak_price), 2)
+        offs = [ht.parse_money(x) for x in _DEEPSEEK_PRICE.findall(m.group(2))]
+        peaks = [ht.parse_money(x) for x in _DEEPSEEK_PRICE.findall(m.group(3))]
         unit = f"USD / 1M tokens ({human})"
         snippet = ht.snippet(text, m.start(), m.end(), 120)
 
-        out.append(Candidate(
-            source_id=source.id,
-            provider_key=source.provider_key,
-            product=f"DeepSeek API ({model_name})",
-            title=f"Off-peak {human}: ${off:g} vs ${peak_price:g} por 1M tokens",
-            offer_type="OFF_PEAK_DISCOUNT",
-            benefit=(
-                f"Tarifa off-peak ${off:g} contra peak ${peak_price:g} por 1M tokens "
-                f"({human}). La pagina declara: 'Off-peak rates are half of the peak rates'."
-            ),
-            official_url=source.url,
-            evidence_url=source.url,
-            evidence_snippet=snippet,
-            extraction_rule="html:regex PEAK/OFF-PEAK por 1M tokens + claim explicito de mitad de precio",
-            price_baseline=peak_price,
-            price_offer=off,
-            price_unit=unit,
-            currency="USD",
-            discount_pct=discount,
-            eligibility="Cuenta API con saldo (pay-as-you-go). No requiere suscripcion.",
-            card_required="unknown",
-            auto_renewal="no",
-            argentina_status="ARGENTINA_NO_CONFIRMADA",
-            terms_url=source.terms_url,
-            time_window_utc="Pico: 01:00-04:00 y 06:00-10:00 UTC, lun-vie",
-            time_window_art=window,
-            confidence="alta",
-            notes="Descuento calculado sobre precios publicados, misma unidad y misma modalidad.",
-            dedupe_extra=f"{model_name}|{label}",
-            tags=["off-peak", "api"],
-        ))
+        for idx, (off, peak_price) in enumerate(zip(offs, peaks)):
+            # Columna sin modelo identificable en el encabezado: no se atribuye.
+            if idx >= len(models):
+                break
+            if off is None or peak_price is None or peak_price <= 0:
+                continue
+            model_name = models[idx]
+            discount = round(100.0 * (1.0 - off / peak_price), 2)
+            notes = ("Descuento calculado sobre precios publicados, misma unidad "
+                     "y misma modalidad (cache hit/miss o salida).")
+            if offpeak_rest:
+                notes = f"{notes} {offpeak_rest}"
+
+            out.append(Candidate(
+                source_id=source.id,
+                provider_key=source.provider_key,
+                product=f"DeepSeek API ({model_name})",
+                title=f"Off-peak {human}: ${off:g} vs ${peak_price:g} por 1M tokens",
+                offer_type="OFF_PEAK_DISCOUNT",
+                benefit=(
+                    f"Tarifa off-peak ${off:g} contra peak ${peak_price:g} por 1M tokens "
+                    f"({human}) del modelo {model_name}. La pagina declara: "
+                    "'Off-peak rates are half of the peak rates'."
+                ),
+                official_url=source.url,
+                evidence_url=source.url,
+                evidence_snippet=snippet,
+                extraction_rule="html:regex PEAK/OFF-PEAK por 1M tokens, una columna por modelo + claim explicito de mitad de precio",
+                price_baseline=peak_price,
+                price_offer=off,
+                price_unit=unit,
+                currency="USD",
+                discount_pct=discount,
+                eligibility="Cuenta API con saldo (pay-as-you-go). No requiere suscripcion.",
+                card_required="unknown",
+                auto_renewal="no",
+                argentina_status="ARGENTINA_NO_CONFIRMADA",
+                terms_url=source.terms_url,
+                time_window_utc=window_utc,
+                time_window_art=window,
+                confidence="alta",
+                notes=notes,
+                dedupe_extra=f"{model_name}|{label}",
+                tags=["off-peak", "api"],
+            ))
     return out
 
 

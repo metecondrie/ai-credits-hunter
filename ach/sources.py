@@ -47,14 +47,17 @@ SOURCES: list[Source] = [
         id="deepseek-pricing",
         name="DeepSeek API - Models & Pricing",
         provider_key="deepseek",
-        url="https://api-docs.deepseek.com/quick_start/pricing",
+        url="https://api-docs.deepseek.com/quick_start/pricing/",
         kind="html",
         extractor="deepseek_offpeak",
         official_domain="api-docs.deepseek.com",
         priority="A",
         cadence_hours=12,
         terms_url="https://api-docs.deepseek.com/",
-        notes="Pagina renderizada en servidor con tabla PEAK / OFF-PEAK en USD por 1M tokens.",
+        # Sin la barra final el host estatico responde HTTP 200 con el documento
+        # "Your First API Call": la tabla de precios no esta y el extractor da 0.
+        notes="Pagina Docusaurus renderizada en servidor con tabla PEAK / OFF-PEAK "
+              "en USD por 1M tokens, una columna por modelo. La barra final es obligatoria.",
     ),
     Source(
         id="cloudflare-workers-ai-pricing",

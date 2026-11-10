@@ -122,18 +122,31 @@ python -m unittest discover -s tests -p "test_ach_integration.py"
 ```
 
 Resultado en la versión publicada: **50 pruebas offline en verde** (11 unitarias, 14 de
-extractores, 25 de IA) y **9 de 11 en integración**. Las dos pruebas fallidas **siguen pendientes**: asumen al menos tres proveedores
-verificados y extracción de precios de DeepSeek. En la comprobación del 2026-11-09,
-`deepseek-pricing` devolvió 0 candidatos por cambios en la página oficial. Es una
-fragilidad real de la integración con páginas externas, aunque el resto del motor
-continúa funcionando; no debe marcarse la suite completa como aprobada.
+extractores, 25 de IA) y **9 de 11 en integración**.
 
-En la rama `fix/p01-is-offer-booleano-estricto` (2026-11-10) las pruebas offline pasan a
-**57 en verde** (11 unitarias, 14 de extractores, **32 de IA**) por los 7 casos de
-regresión del P0.1. La integración **no se re-ejecutó** en esa rama: sigue en 9 de 11
-según la comprobación del 2026-11-09.
+Con P0.1 y P0.2 integrados (2026-11-10) el total pasa a **70 casos** (11 unitarias,
+**27 de extractores**, **32 de IA**): +13 por el P0.2 y +7 por el P0.1. Con los
+sockets bloqueados y bases temporales pasan **69 de 70**; **no debe afirmarse 70/70**.
+Las 38 deterministas (11 unitarias + 27 de extractores) están en verde y de las 32 de
+IA pasan 31. La restante, `test_openrouter_paid_model_blocked_without_authorization`,
+**exige red**: `assess_cost()` llama a `list_models()` sin recibir el `http_post`
+inyectado. Es un problema **preexistente**, ajeno a ambas correcciones (falla igual
+sobre el `main` anterior con la red bloqueada) y solo pasa si se permite esa salida
+HTTP, así que no debe contarse como prueba offline.
 
-Para correr la integración sin red:
+Las dos pruebas de integración que fallaban (`test_at_least_three_sources_verified` y
+`test_prices_come_from_pages`) dependían de que `deepseek-pricing` extrajera precios:
+la causa era la URL sin barra final, ya corregida y comprobada en vivo. **La suite
+live no se re-ejecutó**: depende del contenido cambiante de terceros y exigiría
+varias consultas no indispensables. No se afirma 11/11; queda clasificada como
+verificación de conectividad pendiente, separada de las pruebas deterministas con
+fixtures, que sí están en verde.
+
+`ACH_OFFLINE=1` **solo lo lee `tests/test_ach_integration.py`**: omite con
+`SkipTest` las pruebas que consultan fuentes reales. No está implementado en
+`ach/`, así que no vuelve offline al motor ni a `test_ach_ai.py`,
+`test_ach_unit.py` o `test_ach_extractors.py`: esas tres se comportan igual con o
+sin la variable, y su aislamiento depende de los mocks y fixtures de cada prueba.
 
 ```bash
 ACH_OFFLINE=1 python -m unittest discover -s tests -p "test_ach_integration.py"
@@ -163,15 +176,20 @@ reports/v4/     vacío: acá se escriben los reportes de cada corrida (no se ver
 - **Bases protegidas**: el motor se niega a abrir en escritura nombres de bases históricas
   (`promotions.sqlite3`, `hunter.db`).
 
-Variables de entorno opcionales: `ACH_DB`, `ACH_TIMEOUT`, `ACH_RETRIES`, `ACH_DELAY`,
-`ACH_MAX_BYTES`, `ACH_HOST_INTERVAL`, `ACH_OFFLINE`.
+Variables de entorno opcionales del motor: `ACH_DB`, `ACH_TIMEOUT`, `ACH_RETRIES`,
+`ACH_DELAY`, `ACH_MAX_BYTES`, `ACH_HOST_INTERVAL`. `ACH_OFFLINE` no es del motor:
+solo la usa la suite de integración para omitir las pruebas con red (sección 7).
 
 ## 10. Limitaciones conocidas
 
 1. **Cobertura**: 8 fuentes. Sitios con render 100 % JavaScript (Groq, Gemini API) no se
    pueden leer sin navegador y quedan afuera en vez de simularse.
-2. **`deepseek-pricing`**: 0 candidatos al 2026-11-09 por cambio de maquetado en el sitio.
-   El extractor no inventa datos: devuelve vacío.
+2. **`deepseek-pricing`**: reparado el 2026-11-10 (P0.2, sección 12). La causa no era un
+   cambio de maquetado: la URL configurada no llevaba barra final y el host estático
+   respondía HTTP 200 con el documento «Your First API Call», sin tabla de precios.
+   Con `/quick_start/pricing/` vuelve a dar 6 candidatos (2 modelos × 3 categorías de
+   tokens). Sigue siendo una fuente frágil: si el documento cambia, el extractor
+   devuelve vacío y `source.last_candidates` lo deja visible.
 3. **RSS**: baja confianza por diseño; requieren abrir el enlace.
 4. **Sin automatización**: no hay tarea programada; ejecutar es manual.
 5. **Un solo hilo de red**: la corrida tarda unos 10 s con 8 fuentes.
@@ -200,8 +218,10 @@ Esta versión no declara una licencia; se publica para lectura y evaluación.
 > fuentes predefinidas y registra evidencia; cuenta con IA opcional (Gemini, Groq,
 > OpenRouter y compatible OpenAI), selección/fallback y un proveedor
 > `demo_local` **simulado**. Las pruebas de IA publicadas usan mocks o demo; no
-> demuestran una clasificación completada con una API LLM real. Las dos pruebas
-> de integración que dependen del extractor DeepSeek están fallando.
+> demuestran una clasificación completada con una API LLM real. El extractor
+> DeepSeek quedó reparado el 2026-11-10 (P0.2); las dos pruebas de integración que
+> dependían de él no se re-ejecutaron en vivo y siguen clasificadas como pendientes
+> de conectividad, no como fallo del extractor.
 >
 > **Regla de trabajo:** un implementador, una revisión final, cambios pequeños y
 > verificables. No crear una infraestructura multiagente, reconstruir el sistema
@@ -223,8 +243,10 @@ Esta versión no declara una licencia; se publica para lectura y evaluación.
    `is_offer NULL` y `error`, suma `ai_blocked` y la corrida **no** se interrumpe ni
    genera una clasificación positiva. Pruebas: 7 casos nuevos en
    `tests/test_ach_ai.py` (`ParseTestCase`, `ClassifyTestCase`,
-   `FullJourneyTestCase`), 32/32 en verde offline y comprobados en rojo (18 fallos)
-   contra el código previo.
+   `FullJourneyTestCase`). La suite de IA suma 32 casos: los 7 nuevos son
+   estrictamente offline y se comprobaron en rojo (18 fallos) contra el código
+   previo; del total, 31 pasan con la red bloqueada y uno exige red por un problema
+   preexistente ajeno a esta corrección (ver sección 7). No debe afirmarse 32/32 offline.
 
    **Sigue abierto** el segundo requisito del ítem: que `is_offer=false` de una IA no
    se confunda con una verificación documental y se presente como candidato rechazado
@@ -232,15 +254,50 @@ Esta versión no declara una licencia; se publica para lectura y evaluación.
    «No es oferta» y «IA bloqueada», pero eso no se auditó ni se cambió en esta
    entrega).
 
-2. **Reparar el extractor de DeepSeek y hacer resilientes las pruebas live.**
-   Revisar `ach/extract.py` y `ach/sources.py` frente a la página actual de
-   precios; no inventar descuentos cuando la tabla no esté presente.
-   Separar pruebas deterministas con fixtures de pruebas de conectividad
-   que dependan del contenido cambiante de terceros. Una fuente sin
-   coincidencias no tiene que romper el producto completo, pero sí debe
-   registrarse como fuente que requiere mantenimiento. Cierre: extractor
-   comprobado con fragmentos oficiales actuales y test de regresión;
-   11/11 pruebas de integración o fallos externos explícitamente clasificados.
+2. **Reparar el extractor de DeepSeek y hacer resilientes las pruebas live.** —
+   **RESUELTO** (2026-11-10, rama `fix/p02-deepseek-pricing`, base `59b91ad`).
+
+   **Causa del fallo:** `ach/sources.py` apuntaba a `.../quick_start/pricing` **sin
+   barra final**. El host estático respondía **HTTP 200** con el documento «Your
+   First API Call», que no contiene la tabla de precios. El extractor hacía bien en
+   devolver 0 candidatos: no inventaba nada. No era un cambio de maquetado de la
+   tabla, y el HTTP 200 no delataba el problema.
+
+   **El beneficio sigue vigente.** La página oficial declara literalmente:
+   «Off-peak rates are half of the peak rates. Peak hours are 01:00 - 04:00 and
+   06:00 - 10:00 UTC, Monday through Friday, excluding Chinese public holidays.»
+   El off-peak es un 50 % real sobre la tarifa peak, en la misma unidad (USD por 1M
+   tokens) y la misma modalidad (cache hit, cache miss, salida). No es una tarifa
+   normal disfrazada de promoción.
+
+   **Solución:** URL con barra final; el extractor lee ahora **una columna por
+   modelo** desde el encabezado `MODEL` (antes descartaba en silencio la segunda,
+   `deepseek-v4-pro`), deriva `time_window_utc` del texto oficial en vez de
+   hardcodearlo, y registra el complemento off-peak (fines de semana y feriados
+   chinos completos). Una columna sin modelo identificable no se atribuye. Los
+   precios de Search & Fetch (USD 0.75 cada 1000 requests) **no** se emiten como
+   oferta: son tarifa normal, no descuento.
+
+   **Evidencia:** comprobado en vivo a través del propio motor el
+   2026-11-10T04:28:54Z (HTTP 200, una única consulta de lectura): 6 candidatos
+   `NETWORK_VERIFIED`, banda `DESCUENTO_50_69`, precios exactos por modelo
+   (flash: 0.003/0.006, 0.15/0.3, 0.6/1.2; v4-pro: 0.022/0.044, 0.66/1.32,
+   1.98/3.96). El fixture existente ya era byte a byte idéntico a la respuesta
+   correcta (sha256 `af667969…ece5`); se agregó
+   `tests/fixtures/deepseek-pricing-wrong-document.html` con la captura real del
+   documento equivocado. Nota: el motor guarda el sha256 y los bytes del cuerpo
+   **comprimido** (gzip), por eso difieren de la captura sin comprimir.
+
+   **Pruebas:** 13 casos nuevos en `tests/test_ach_extractors.py` (27 en total),
+   deterministas, sin red y con bases temporales; incluyen integridad SQLite
+   (`PRAGMA integrity_check` = `ok`, `foreign_key_check` vacío), nivel `FIXTURE`
+   para las capturas y deduplicación en la segunda corrida. Contra el código
+   original, 8 de esas pruebas fallan.
+
+   **Queda pendiente:** re-ejecutar la suite live de integración (verificación de
+   conectividad, no determinista) y el aviso explícito de «fuente requiere
+   mantenimiento»: hoy una fuente con HTTP 200 y 0 coincidencias queda visible en
+   `source.last_candidates` y `source_run`, pero no tiene un estado propio.
 
 3. **Eliminar falsas comparaciones de precios.** Las cuotas gratis de
    Cloudflare, el plan FREE de Kiro y el crédito mensual de Vercel no son
