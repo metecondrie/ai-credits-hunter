@@ -115,8 +115,9 @@ _JSON_OBJECT = re.compile(r"\{.*\}", re.S)
 def parse_response(text: str) -> AIAssessment:
     """Parseo robusto: fence markdown, JSON embebido o JSON directo.
 
-    Si no hay JSON valido o faltan claves, se levanta ValueError: NUNCA se
-    fabrica una interpretacion a partir de texto no estructurado.
+    Si no hay JSON valido, faltan claves o `is_offer` no es un booleano JSON
+    autentico, se levanta ValueError: NUNCA se fabrica una interpretacion a
+    partir de texto no estructurado.
     """
     candidate_text = None
     fence = _JSON_FENCE.search(text or "")
@@ -140,6 +141,14 @@ def parse_response(text: str) -> AIAssessment:
     if missing:
         raise ValueError(f"Faltan claves en la respuesta: {sorted(missing)}")
 
+    # bool("false") es True en Python: solo se acepta el booleano JSON autentico.
+    is_offer = data["is_offer"]
+    if not isinstance(is_offer, bool):
+        raise ValueError(
+            "Campo 'is_offer' invalido: se exige un booleano JSON autentico "
+            f"(true o false); se recibio {type(is_offer).__name__}."
+        )
+
     benefit_type = str(data["benefit_type"]).upper()
     if benefit_type not in BENEFIT_TYPES:
         benefit_type = "OTRO"
@@ -151,7 +160,7 @@ def parse_response(text: str) -> AIAssessment:
         confidence = "baja"
 
     return AIAssessment(
-        is_offer=bool(data["is_offer"]),
+        is_offer=is_offer,
         benefit_type=benefit_type,
         conditions=str(data["conditions"])[:1000],
         restrictions=str(data["restrictions"])[:1000],
