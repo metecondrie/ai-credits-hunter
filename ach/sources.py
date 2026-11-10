@@ -162,6 +162,49 @@ SOURCES: list[Source] = [
         terms_url="https://huggingface.co/terms-of-service",
         notes="Blog oficial; util para creditos, planes Pro y programas educativos.",
     ),
+    # --- P1.1: fuentes oficiales adicionales verificables -------------------
+    Source(
+        id="groq-free-plan",
+        name="GroqCloud - Free Plan Limits",
+        provider_key="groq",
+        url="https://console.groq.com/docs/rate-limits",
+        kind="html",
+        extractor="groq_free_plan",
+        official_domain="console.groq.com",
+        priority="B",
+        cadence_hours=24,
+        terms_url="https://console.groq.com/docs/billing-faqs",
+        notes="Cuotas del plan Free por modelo, publicadas en el payload 'freeRows'. "
+              "Las del plan Developer ('devRows') NO se mezclan: son otro plan.",
+    ),
+    Source(
+        id="stability-welcome-credits",
+        name="Stability AI - Creditos de bienvenida",
+        provider_key="stability",
+        url="https://platform.stability.ai/pricing",
+        kind="html",
+        extractor="stability_welcome_credits",
+        official_domain="platform.stability.ai",
+        priority="B",
+        cadence_hours=24,
+        terms_url="https://platform.stability.ai/docs/getting-started",
+        notes="Creditos iniciales gratuitos y equivalencia credito/USD declaradas en "
+              "la pagina de precios. Requiere cuenta y API key.",
+    ),
+    Source(
+        id="cohere-trial-key",
+        name="Cohere - Clave de evaluacion gratuita",
+        provider_key="cohere",
+        url="https://docs.cohere.com/docs/rate-limits",
+        kind="html",
+        extractor="cohere_trial_key",
+        official_domain="docs.cohere.com",
+        priority="B",
+        cadence_hours=24,
+        terms_url="https://docs.cohere.com/docs/rate-limits",
+        notes="Clave de evaluacion gratuita con tope mensual declarado. No es acceso "
+              "de produccion ni ilimitado: las claves production son pagas.",
+    ),
 ]
 
 BY_ID: dict[str, Source] = {s.id: s for s in SOURCES}
@@ -221,6 +264,27 @@ PROVIDERS: dict[str, dict] = {
         "company": "Vercel",
         "category": "api_gateway",
         "official_domains": "vercel.com",
+        "identity_status": "CONFIRMED",
+    },
+    "groq": {
+        "name": "GroqCloud",
+        "company": "Groq",
+        "category": "api",
+        "official_domains": "groq.com, console.groq.com",
+        "identity_status": "CONFIRMED",
+    },
+    "stability": {
+        "name": "Stability AI",
+        "company": "Stability AI",
+        "category": "api",
+        "official_domains": "stability.ai, platform.stability.ai",
+        "identity_status": "CONFIRMED",
+    },
+    "cohere": {
+        "name": "Cohere",
+        "company": "Cohere",
+        "category": "api",
+        "official_domains": "cohere.com, docs.cohere.com",
         "identity_status": "CONFIRMED",
     },
 }

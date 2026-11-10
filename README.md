@@ -9,8 +9,8 @@ fuentes automáticamente. Cada hallazgo debe conservar un fragmento literal de l
 fuente, su URL, el hash SHA-256 del cuerpo descargado y el estado HTTP.
 
 - **Solo biblioteca estándar de Python (>= 3.11)**. Sin `pip install`, sin APIs pagas.
-- **8 fuentes reales por HTTP**: OpenRouter, DeepSeek, Cloudflare Workers AI, Kiro, Vercel
-  AI Gateway y tres feeds RSS oficiales.
+- **11 fuentes reales por HTTP**: OpenRouter, DeepSeek, Cloudflare Workers AI, Kiro, Vercel
+  AI Gateway, GroqCloud, Stability AI, Cohere y tres feeds RSS oficiales.
 - **Trazabilidad completa**: sin URL oficial, fragmento y fecha UTC no hay oferta.
 - **SQLite** con claves foráneas activas, migraciones versionadas con checksum.
 - **Interfaz web local** en `http://127.0.0.1:8765`.
@@ -84,10 +84,25 @@ local ni a internet.
 | `cloudflare-workers-ai-pricing` | HTML | Neurons diarios gratis y precio del excedente. |
 | `kiro-pricing` | HTML | Plan FREE y precio del plan PRO. |
 | `vercel-ai-gateway-pricing` | HTML | Crédito mensual. |
+| `groq-free-plan` | HTML (payload `freeRows`) | Cuotas del plan Free por modelo (RPM/RPD/TPM/TPD/ASH/ASD). |
+| `stability-welcome-credits` | HTML | Créditos iniciales de bienvenida y equivalencia crédito/USD. |
+| `cohere-trial-key` | HTML | Clave de evaluación gratuita con tope mensual de llamadas. |
 | `openai-news-rss`, `google-ai-blog-rss`, `huggingface-blog-rss` | RSS | Anuncios con lenguaje promocional (baja confianza). |
 
 Agregar una fuente es una entrada en `ach/sources.py` más un extractor en `ach/extract.py`.
 Si el patrón no aparece, el extractor devuelve **cero** candidatos: no se rellena nada.
+
+**Fuentes evaluadas y descartadas (P1.1, 2026-11-10).** No se incorporaron porque no
+permiten una extracción fiable de una oportunidad real:
+
+- **Google Gemini API** (`ai.google.dev/gemini-api/docs/pricing`): HTTP 200, pero el
+  contenido se renderiza por JavaScript. El HTML servido solo aporta el título
+  (60 caracteres de texto) y un JSON de configuración sin precios ni free tier.
+  Sin navegador no hay evidencia literal: queda afuera en vez de simularse.
+- **Hugging Face Inference Providers** (`huggingface.co/docs/inference-providers/pricing`):
+  la página **contradice** la referencia de USD 0,10 mensuales para cuentas gratuitas.
+  Declara «Free Users: None» y que las cuentas free deben **comprar** créditos o pasar a
+  PRO (USD 2,00/mes). No hay oportunidad gratuita documentada: no se inventa.
 
 ## 5. Niveles de verificación
 
@@ -124,17 +139,18 @@ python -m unittest discover -s tests -p "test_ach_integration.py"
 Resultado en la versión publicada: **50 pruebas offline en verde** (11 unitarias, 14 de
 extractores, 25 de IA) y **9 de 11 en integración**.
 
-Con P0.1, P0.2 y P0.3 integrados el total era de 93 casos. Tras corregir la
-dependencia de red de las pruebas de IA (2026-11-10, rama
-`fix/p04-ai-offline-tests`) pasa a **96 casos** (11 unitarias, **29 de
-extractores**, **35 de IA** y **21 de semántica de descuentos**). Con
-`socket.connect`, `connect_ex`, `create_connection`, `getaddrinfo` y
-`urllib.request.urlopen` bloqueados, y bases temporales: **96 de 96 en verde,
-0 fallos, 0 errores y cero intentos de red**. Estas 96 pruebas offline pasan
-sin conexión; la suite de integración live (`tests/test_ach_integration.py`)
-**sigue requiriendo conectividad**, porque consulta las fuentes reales por HTTP
-y depende del contenido cambiante de terceros. Puede omitirse con
-`ACH_OFFLINE=1`, que solo afecta a esa suite.
+Con P0.1, P0.2 y P0.3 integrados el total era de 93 casos; tras corregir la
+dependencia de red de las pruebas de IA (rama `fix/p04-ai-offline-tests`) pasó a
+96. Con P1.1 (2026-11-10, rama `feature/p11-more-ai-sources`) el total es de
+**119 casos** (11 unitarias, **29 de extractores**, **35 de IA**, **21 de
+semántica de descuentos** y **23 de fuentes nuevas**). Con `socket.connect`,
+`connect_ex`, `create_connection`, `getaddrinfo` y `urllib.request.urlopen`
+bloqueados, y bases temporales: **119 de 119 en verde, 0 fallos, 0 errores y
+cero intentos de red**. Estas 119 pruebas offline pasan sin conexión; la suite
+de integración live (`tests/test_ach_integration.py`) **sigue requiriendo
+conectividad**, porque consulta las fuentes reales por HTTP y depende del
+contenido cambiante de terceros. Puede omitirse con `ACH_OFFLINE=1`, que solo
+afecta a esa suite.
 
 El caso que antes exigía red,
 `test_openrouter_paid_model_blocked_without_authorization`, era un hueco de
@@ -197,8 +213,12 @@ solo la usa la suite de integración para omitir las pruebas con red (sección 7
 
 ## 10. Limitaciones conocidas
 
-1. **Cobertura**: 8 fuentes. Sitios con render 100 % JavaScript (Groq, Gemini API) no se
-   pueden leer sin navegador y quedan afuera en vez de simularse.
+1. **Cobertura**: 11 fuentes. Gemini API sigue afuera: su página de precios se renderiza
+   100 % por JavaScript y el HTML servido no contiene la evidencia (ver sección 4).
+   GroqCloud sí pudo incorporarse: aunque la tabla visible es cliente, el payload
+   del lado del servidor incluye el array etiquetado `freeRows`, que se lee de forma
+   reproducible y sin navegador. Hugging Face Inference Providers se descartó porque
+   su página declara que las cuentas gratuitas **no** reciben créditos incluidos.
 2. **`deepseek-pricing`**: reparado el 2026-11-10 (P0.2, sección 12). La causa no era un
    cambio de maquetado: la URL configurada no llevaba barra final y el host estático
    respondía HTTP 200 con el documento «Your First API Call», sin tabla de precios.
@@ -207,7 +227,8 @@ solo la usa la suite de integración para omitir las pruebas con red (sección 7
    devuelve vacío y `source.last_candidates` lo deja visible.
 3. **RSS**: baja confianza por diseño; requieren abrir el enlace.
 4. **Sin automatización**: no hay tarea programada; ejecutar es manual.
-5. **Un solo hilo de red**: la corrida tarda unos 10 s con 8 fuentes.
+5. **Un solo hilo de red**: la corrida es secuencial; con 11 fuentes tarda más que
+   con las 8 originales (el retardo mínimo por host sigue aplicando).
 6. **Sin reintento ante 429**: se reporta el error y se sigue.
 7. **Precios en texto**: `baseline_price`/`offer_price` son numéricos solo cuando la página
    publica números comparables.
@@ -408,17 +429,20 @@ Esta versión no declara una licencia; se publica para lectura y evaluación.
 
 ### P1 — Aumentar la utilidad real del cazador
 
-6. **Ampliar y administrar las fuentes.** Hoy `ach/sources.py` contiene
-   ocho fuentes fijadas en código; la base almacena resultados/estado, pero
-   no reemplaza al registro de extractores. Crear un catálogo administrable
-   (URL, proveedor, dominio oficial, tipo, método de extracción, prioridad,
-   cadencia, términos, estado, última revisión y motivos de fallo) y una
-   interfaz para habilitar/deshabilitar fuentes sin editar Python.
-   Incorporar fuentes oficiales de créditos, promociones, pruebas y
-   beneficios educativos, priorizando disponibilidad en Argentina. Candidatos
-   para investigar, **no ofertas confirmadas**: GitHub Education, Gemini API,
-   Groq, Alibaba Cloud Model Studio y Google Cloud. Incorporar únicamente
-   fuentes con extracción verificable, respetando términos y límites.
+6. **Ampliar y administrar las fuentes.** **Avance parcial (2026-11-10, rama
+   `feature/p11-more-ai-sources`):** se incorporaron tres fuentes oficiales
+   verificables —GroqCloud (plan Free), Stability AI (créditos de bienvenida) y
+   Cohere (clave de evaluación)—, con lo que `ach/sources.py` pasa de ocho a
+   **once** fuentes fijadas en código. Gemini API y Hugging Face Inference
+   Providers se evaluaron y descartaron con motivo documentado (sección 4).
+   **Sigue pendiente** el catálogo administrable (URL, proveedor, dominio oficial,
+   tipo, método de extracción, prioridad, cadencia, términos, estado, última
+   revisión y motivos de fallo) y la interfaz para habilitar/deshabilitar fuentes
+   sin editar Python: hoy la base almacena resultados/estado, pero no reemplaza al
+   registro de extractores. También quedan por investigar GitHub Education,
+   Alibaba Cloud Model Studio y Google Cloud, **no ofertas confirmadas**.
+   Incorporar únicamente fuentes con extracción verificable, respetando términos
+   y límites.
 
 7. **Descubrir fuentes nuevas, no solo volver a consultar las conocidas.**
    Añadir una etapa de descubrimiento mediante feeds, APIs públicas y búsquedas

@@ -529,6 +529,211 @@ def html_monthly_credit(source: Source, res: FetchResult) -> list[Candidate]:
     )]
 
 
+# --------------------------------------------------------------------------
+# 7) GroqCloud: cuotas del plan Free (payload etiquetado, no la tabla visible)
+# --------------------------------------------------------------------------
+# La pagina publica dos juegos de limites: freeRows (Free) y devRows (Developer).
+# Se lee SOLO freeRows para no atribuir al plan gratuito cuotas del plan pago.
+_GROQ_FREE_ROWS = re.compile(r'"freeRows":\s*(\[\[.*?\]\])', re.S)
+_GROQ_QUOTAS = ("RPM", "RPD", "TPM", "TPD", "ASH", "ASD")
+
+
+def groq_free_plan(source: Source, res: FetchResult) -> list[Candidate]:
+    raw = res.text or ""
+    if "Free Plan Limits" not in raw:
+        return []
+    # El payload de Next.js escapa las comillas; se normaliza solo para leer JSON.
+    m = _GROQ_FREE_ROWS.search(raw.replace('\\"', '"'))
+    if not m:
+        return []
+    try:
+        rows = json.loads(m.group(1))
+    except (json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(rows, list):
+        return []
+
+    text = ht.to_text(raw)
+    out: list[Candidate] = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) < 2:
+            continue
+        model = str(row[0]).strip()
+        if not model:
+            continue
+        quotas = [(k, str(v).strip()) for k, v in zip(_GROQ_QUOTAS, row[1:7])
+                  if str(v).strip() not in ("", "-", "N/A")]
+        if not quotas:
+            continue
+        detail = ", ".join(f"{k}={v}" for k, v in quotas)
+        idx = text.find(model)
+        snippet = (ht.snippet(text, idx, idx + len(model) + 120, 40) if idx >= 0
+                   else ht.collapse(m.group(1))[:600])
+
+        out.append(Candidate(
+            source_id=source.id,
+            provider_key=source.provider_key,
+            product=f"GroqCloud ({model})",
+            title=f"Plan Free de GroqCloud para {model}",
+            offer_type="FREE_TIER",
+            benefit=(
+                f"Plan Free de GroqCloud con cuotas publicadas para {model}: {detail}. "
+                "RPM/RPD son requests por minuto/dia; TPM/TPD tokens por minuto/dia; "
+                "ASH/ASD segundos de audio por hora/dia."
+            ),
+            official_url=source.url,
+            evidence_url=source.url,
+            evidence_snippet=snippet,
+            extraction_rule="html:array 'freeRows' del payload oficial (plan Free) + fragmento literal",
+            price_baseline=None,
+            price_offer=0.0,
+            price_unit="USD / mes",
+            currency="USD",
+            discount_pct=None,
+            eligibility=(
+                "Cuenta GroqCloud en plan Free. Las Billing FAQs indican que el upgrade "
+                "a Developer exige metodo de pago; para el plan Free no se declara "
+                "requisito de tarjeta."
+            ),
+            card_required="unknown",
+            auto_renewal="no",
+            argentina_status="ARGENTINA_NO_CONFIRMADA",
+            terms_url=source.terms_url,
+            confidence="alta",
+            notes=(
+                "Cuotas del plan Free leidas de 'freeRows'; las del plan Developer "
+                "('devRows') no se mezclan. La pagina publica cuotas de uso, no un precio "
+                "de lista comparable: no hay descuento porcentual. El precio comercial por "
+                "millon de tokens no se interpreta como 100% de descuento. "
+                "Tarjeta y disponibilidad en Argentina: No confirmado."
+            ),
+            dedupe_extra=model,
+            tags=["free-tier", "api", "groq"],
+            benefit_kind="PLAN_GRATUITO",
+        ))
+    return out
+
+
+# --------------------------------------------------------------------------
+# 8) Stability AI: creditos iniciales de bienvenida
+# --------------------------------------------------------------------------
+_STABILITY_FREE = re.compile(r"Get started with\s+([\d,]+)\s+free credits", re.I)
+_STABILITY_UNIT = re.compile(r"1\s+credit\s*(?:=|equals)\s*\$(\d+(?:\.\d+)?)", re.I)
+
+
+def stability_welcome_credits(source: Source, res: FetchResult) -> list[Candidate]:
+    text = ht.to_text(res.text)
+    if not text:
+        return []
+    m = _STABILITY_FREE.search(text)
+    if not m:
+        return []
+    credits = ht.parse_money(m.group(1))
+    if credits is None or credits <= 0:
+        return []
+    unit_m = _STABILITY_UNIT.search(text)
+    unit_value = ht.parse_money(unit_m.group(1)) if unit_m else None
+    worth = f" (USD {credits * unit_value:g})" if unit_value else ""
+    equiv = (f" Equivalencia publicada: 1 credito = USD {unit_value:g}."
+             if unit_value else "")
+
+    return [Candidate(
+        source_id=source.id,
+        provider_key=source.provider_key,
+        product="Stability AI API",
+        title=f"Creditos de bienvenida Stability AI: {credits:g} gratis{worth}",
+        offer_type="CREDITS",
+        benefit=(
+            f"La pagina de precios oficial declara 'Get started with {m.group(1)} free "
+            f"credits'.{equiv} El saldo y la compra de creditos adicional se gestionan "
+            "en la pagina de cuenta."
+        ),
+        official_url=source.url,
+        evidence_url=source.url,
+        evidence_snippet=ht.snippet(text, m.start(), m.end(), 200),
+        extraction_rule="html:regex 'Get started with N free credits' + equivalencia credito/USD",
+        price_baseline=None,
+        price_offer=None,
+        price_unit="USD (creditos)",
+        currency="USD" if unit_value else None,
+        discount_pct=None,
+        eligibility="Requiere cuenta y API key de Stability AI para usar los creditos.",
+        card_required="unknown",
+        auto_renewal="unknown",
+        argentina_status="ARGENTINA_NO_CONFIRMADA",
+        terms_url=source.terms_url,
+        confidence="alta",
+        notes=(
+            "Creditos iniciales de bienvenida, no un descuento porcentual: no hay precio "
+            "de lista comparable. Vencimiento, duracion, requisito de tarjeta y "
+            "disponibilidad en Argentina: No confirmado en la pagina; no se inventan."
+        ),
+        dedupe_extra=source.id,
+        tags=["creditos", "bienvenida", "api"],
+        benefit_kind="CREDITO",
+    )]
+
+
+# --------------------------------------------------------------------------
+# 9) Cohere: clave de evaluacion gratuita con tope mensual
+# --------------------------------------------------------------------------
+_COHERE_EVAL = re.compile(r"evaluation keys\s*\(free but limited in usage\)", re.I)
+_COHERE_MONTHLY = re.compile(r"limited to\s+([\d,]+)\s+API calls a month", re.I)
+
+
+def cohere_trial_key(source: Source, res: FetchResult) -> list[Candidate]:
+    text = ht.to_text(res.text)
+    if not text:
+        return []
+    eval_m = _COHERE_EVAL.search(text)
+    calls_m = _COHERE_MONTHLY.search(text)
+    if not eval_m or not calls_m:
+        return []
+    calls = calls_m.group(1)
+    start = min(eval_m.start(), calls_m.start())
+    end = max(eval_m.end(), calls_m.end())
+
+    return [Candidate(
+        source_id=source.id,
+        provider_key=source.provider_key,
+        product="Cohere API (clave de evaluacion)",
+        title=f"Clave de evaluacion gratuita de Cohere: {calls} llamadas/mes",
+        offer_type="TRIAL",
+        benefit=(
+            f"Cohere declara 'evaluation keys (free but limited in usage)' y que las "
+            f"claves trial estan limitadas a {calls} API calls a month. Las claves "
+            "production son pagas y mucho menos limitadas; la pagina publica ademas "
+            "limites por modelo (por ejemplo 20 req/min en la familia Command A)."
+        ),
+        official_url=source.url,
+        evidence_url=source.url,
+        evidence_snippet=ht.snippet(text, start, end, 40),
+        extraction_rule="html:regex 'evaluation keys (free...)' + tope mensual de llamadas",
+        price_baseline=None,
+        price_offer=0.0,
+        price_unit="USD (clave de evaluacion)",
+        currency="USD",
+        discount_pct=None,
+        eligibility=(
+            "Cuenta Cohere y clave de evaluacion (trial). No es acceso de produccion: "
+            "para uso productivo la documentacion remite a claves production pagas."
+        ),
+        card_required="unknown",
+        auto_renewal="unknown",
+        argentina_status="ARGENTINA_NO_CONFIRMADA",
+        terms_url=source.terms_url,
+        confidence="alta",
+        notes=(
+            "Clave de evaluacion gratuita CON TOPE mensual declarado: no es acceso "
+            "gratuito ilimitado ni de produccion. Tarjeta, vencimiento y disponibilidad "
+            "en Argentina: No confirmado en la pagina."
+        ),
+        dedupe_extra=source.id,
+        tags=["prueba", "api", "evaluacion"],
+        benefit_kind="PRUEBA_GRATUITA",
+    )]
+
+
 EXTRACTORS = {
     "openrouter_free_models": openrouter_free_models,
     "deepseek_offpeak": deepseek_offpeak,
@@ -536,6 +741,9 @@ EXTRACTORS = {
     "rss_promotions": rss_promotions,
     "kiro_free_plan": kiro_free_plan,
     "html_monthly_credit": html_monthly_credit,
+    "groq_free_plan": groq_free_plan,
+    "stability_welcome_credits": stability_welcome_credits,
+    "cohere_trial_key": cohere_trial_key,
 }
 
 

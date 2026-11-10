@@ -124,6 +124,11 @@ def _price_cell(value, unit) -> str:
     return f"{value:g} {esc(unit or '')}".strip()
 
 
+def _condicion(value) -> str:
+    """Una condicion no declarada por la fuente se muestra como no confirmada."""
+    return "No confirmado" if value in (None, "", "unknown") else esc(value)
+
+
 class Handler(BaseHTTPRequestHandler):
     db_path: Path = config.DEFAULT_DB
 
@@ -396,8 +401,8 @@ la verificacion oficial exige coincidencia literal en la pagina (nivel NETWORK_V
     <div>Precio oferta</div><div>{_price_cell(o['price_offer'], o['price_unit'])}</div>
     <div>Beneficio</div><div>{_badge(o)} {esc(o['discount_band'])}</div>
     <div>Argentina</div><div>{esc(o['argentina_status'])}</div>
-    <div>Tarjeta</div><div>{esc(o['card_required'])}</div>
-    <div>Auto-renovacion</div><div>{esc(o['auto_renewal'])}</div>
+    <div>Tarjeta</div><div>{_condicion(o['card_required'])}</div>
+    <div>Auto-renovacion</div><div>{_condicion(o['auto_renewal'])}</div>
     <div>Elegibilidad</div><div>{esc(o['eligibility'])}</div>
     <div>Horario</div><div>{esc(o['time_window_art'] or 'N/D')}</div>
     <div>Oficial</div><div><a href="{esc(o['official_url'])}" target="_blank" rel="noopener">
