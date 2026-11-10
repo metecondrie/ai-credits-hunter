@@ -71,6 +71,7 @@ fuentes. Es idempotente: se puede correr las veces que haga falta.
 | `python -m ach serve --port 8765` | Interfaz web local. |
 | `python -m ach discover` | Descubre enlaces candidatos en feeds oficiales (no verificados). |
 | `python -m ach discover --list` | Muestra los candidatos guardados, sin consultar la red. |
+| `python -m ach discover --verify` | Visita los candidatos pendientes y verifica su contenido (máx. 10). |
 
 En Windows hay dos atajos: `iniciar_v4.bat` (init + run + interfaz) y `buscar_v4.bat`
 (solo init + run).
@@ -126,6 +127,48 @@ Git): **sin migraciones SQLite** y sin tocar la base de ofertas.
 - Sin buscadores pagos, sin APIs de inferencia, sin consumo de créditos y sin tareas
   programadas: la ejecución es manual.
 - Si una corrida no produce coincidencias, informa **cero** y no guarda relleno.
+
+#### Verificación documental (P1.5)
+
+```bash
+python -m ach discover --verify            # hasta 10 candidatos pendientes
+python -m ach discover --verify --limit 5  # tope menor
+python -m ach discover --list              # resultados ordenados, sin red
+```
+
+Visita cada URL pendiente con el `HttpFetcher` existente (robots, timeout y retardo
+por host), **sin navegación recursiva**, y decide un estado conservando su justificación:
+
+| Estado | Criterio |
+|---|---|
+| `VERIFICADO_DOCUMENTAL` | Beneficio explícito en la **misma oración**, con intención de oferta dirigida al usuario. |
+| `DESCARTADO` | Falso positivo: la frase aparece en contexto de facturación, contabilidad o relato de un tercero; o no hay beneficio en contenido legible. |
+| `REQUIERE_REVISION` | Hay lenguaje de beneficio pero la oración es ambigua o no aclara elegibilidad ni condiciones. |
+| `ERROR_VERIFICACION` | Página inaccesible, bloqueada por robots, o sin contenido legible (render por JavaScript). |
+
+Guarda en el mismo JSON: estado, motivo, evidencia literal, URL, HTTP, fecha de
+comprobación, sha256 del cuerpo y las condiciones **que estén publicadas** (importe,
+duración, tarjeta, elegibilidad individual/estudiantil/empresarial, geografía y
+Argentina). Lo no documentado queda **«No confirmado»**; no se inventa.
+
+`/descubiertos` ordena primero las documentadas, después las que requieren revisión,
+las pendientes, los errores y al final los descartados, mostrando motivo, evidencia,
+condiciones y aplicabilidad.
+
+**Limitaciones de la verificación:**
+
+- **Documental ≠ comercial.** `VERIFICADO_DOCUMENTAL` solo significa que el texto
+  publicado respalda un beneficio; no garantiza vigencia, stock, elegibilidad ni
+  disponibilidad en Argentina.
+- **No convierte candidatos en ofertas.** Nada se promueve al catálogo de 22 fuentes
+  ni entra en la tabla `offer`, y no se usa `NETWORK_VERIFIED` para estos enlaces.
+- Una oferta **empresarial genuina** se identifica como tal y se marca «no aplicable a
+  usuarios individuales» en Aplicabilidad, en vez de ocultarse o promocionarse.
+- Es un análisis por expresiones regulares sobre la oración que contiene el beneficio.
+  Puede dejar **fragmentos de navegación** como evidencia secundaria y confundir
+  términos de menú (por ejemplo, dar por relacionado con IA un texto cuyo menú menciona
+  «Machine Learning»). Conviene leer la evidencia antes de actuar.
+- Tope de 10 candidatos por ejecución; los pendientes restantes quedan para la próxima.
 
 ## 4. Fuentes incluidas
 
