@@ -27,6 +27,7 @@ BENEFIT_KINDS = (
     "CREDITO",          # creditos promocionales o recurrentes
     "PRUEBA_GRATUITA",  # prueba gratuita
     "MODELO_GRATUITO",  # modelo sin costo por token
+    "BENEFICIO_ESTUDIANTIL",  # beneficio atado a elegibilidad academica
 )
 
 # Solo estas clases comparan dos precios del mismo producto, modalidad, unidad
@@ -42,6 +43,7 @@ _KIND_POR_TIPO = {
     "FREE_MODEL": "MODELO_GRATUITO",
     "CREDITS": "CREDITO",
     "TRIAL": "PRUEBA_GRATUITA",
+    "STUDENT": "BENEFICIO_ESTUDIANTIL",
 }
 
 
@@ -58,6 +60,7 @@ KIND_LABELS = {
     "CREDITO": "Credito",
     "PRUEBA_GRATUITA": "Prueba gratuita",
     "MODELO_GRATUITO": "Modelo gratuito",
+    "BENEFICIO_ESTUDIANTIL": "Beneficio estudiantil",
     "SIN_BASE_VERIFICADA": "sin base comparable",
     "SIN_DESCUENTO": "sin descuento",
 }

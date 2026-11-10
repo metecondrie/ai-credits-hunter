@@ -16,7 +16,7 @@ from email.utils import parsedate_to_datetime
 
 from . import htmltext as ht
 from .fetch import FetchResult
-from .models import Candidate
+from .models import Candidate, slug
 from .sources import PROVIDERS, Source
 
 PROMO_TERMS = re.compile(
@@ -734,6 +734,403 @@ def cohere_trial_key(source: Source, res: FetchResult) -> list[Candidate]:
     )]
 
 
+# --------------------------------------------------------------------------
+# 10) P1.2: fuentes oficiales adicionales con beneficio documentado
+# --------------------------------------------------------------------------
+_ALIBABA_QUOTA = re.compile(r"The free quota is valid for\s+(\d+)\s+days", re.I)
+_ALIBABA_PROTECT = re.compile(r"enable Free Quota Only[^.]*\.", re.I)
+_ALIBABA_BILLING = re.compile(r"you are automatically billed on a pay-as-you-go basis", re.I)
+
+
+def alibaba_free_quota(source: Source, res: FetchResult) -> list[Candidate]:
+    text = ht.to_text(res.text)
+    m = _ALIBABA_QUOTA.search(text)
+    if not m:
+        return []
+    days = m.group(1)
+    protect = _ALIBABA_PROTECT.search(text)
+    billing = _ALIBABA_BILLING.search(text)
+    if not protect or not billing:
+        return []          # sin la advertencia de cargo no se publica el beneficio
+    end = max(m.end(), protect.end(), billing.end())
+    start = min(m.start(), protect.start(), billing.start())
+    return [Candidate(
+        source_id=source.id, provider_key=source.provider_key,
+        product="Alibaba Cloud Model Studio",
+        title=f"Cuota gratuita para nuevos usuarios de Model Studio: {days} dias",
+        offer_type="TRIAL",
+        benefit=(
+            f"Cuota gratuita para nuevos usuarios, valida por {days} dias desde la "
+            "activacion del servicio, la publicacion del modelo o la aprobacion de la "
+            "solicitud (lo que ocurra mas tarde). La pagina advierte que al agotarse "
+            "la cuota se factura automaticamente en pay-as-you-go, y que para evitarlo "
+            "hay que activar 'Free Quota Only', que detiene el servicio al agotarse."
+        ),
+        official_url=source.url, evidence_url=source.url,
+        evidence_snippet=ht.snippet(text, start, end, 60),
+        extraction_rule="html:validez de la cuota + advertencia de cargo + proteccion Free Quota Only",
+        price_baseline=None, price_offer=None, price_unit=None, currency=None,
+        discount_pct=None,
+        eligibility=(
+            "Usuarios nuevos de Alibaba Cloud Model Studio. Desde el 15 de septiembre "
+            "hay que completar la informacion de la cuenta antes de activar el servicio."
+        ),
+        card_required="unknown", auto_renewal="unknown", student_required="no",
+        argentina_status="ARGENTINA_NO_CONFIRMADA", terms_url=source.terms_url,
+        confidence="alta",
+        notes=(
+            "RIESGO DE CARGO: 'Free Quota Only' viene DESACTIVADO por defecto; al agotar "
+            "la cuota se factura automaticamente. Activarlo en la consola antes de usar "
+            "el servicio. Los importes por modelo se consultan en la consola, no en esta "
+            "pagina: no se inventan cantidades. Tarjeta, pais y renovacion: No confirmado."
+        ),
+        dedupe_extra=source.id, tags=["cuota-gratuita", "api", "riesgo-cargo"],
+        benefit_kind="PRUEBA_GRATUITA",
+    )]
+
+
+_CEREBRAS_CREDIT = re.compile(
+    r"Add a valid payment method to receive a one-time \$(\d+) promotional credit", re.I)
+_CEREBRAS_EXPIRY = re.compile(r"The credit expires\s+(\d+)\s+days after activation", re.I)
+_CEREBRAS_NOCHARGE = re.compile(r"You will not be charged or automatically enrolled", re.I)
+
+
+def cerebras_promo_credit(source: Source, res: FetchResult) -> list[Candidate]:
+    text = ht.to_text(res.text)
+    m = _CEREBRAS_CREDIT.search(text)
+    exp = _CEREBRAS_EXPIRY.search(text)
+    if not m or not exp:
+        return []
+    amount, days = m.group(1), exp.group(1)
+    nocharge = _CEREBRAS_NOCHARGE.search(text)
+    end = max(m.end(), exp.end(), nocharge.end() if nocharge else 0)
+    return [Candidate(
+        source_id=source.id, provider_key=source.provider_key,
+        product="Cerebras Inference",
+        title=f"Credito promocional de Cerebras: USD {amount} por {days} dias",
+        offer_type="CREDITS",
+        benefit=(
+            f"La documentacion oficial declara un credito promocional unico de USD {amount} "
+            f"al agregar un metodo de pago valido, que vence a los {days} dias de activado. "
+            + ("La pagina afirma que no se cobra ni se enrola automaticamente en uso pago. "
+               if nocharge else "")
+            + "El nivel gratuito es para desarrollo, evaluacion y experimentacion; "
+              "no esta pensado para produccion."
+        ),
+        official_url=source.url, evidence_url=source.url,
+        evidence_snippet=ht.snippet(text, m.start(), end, 60),
+        extraction_rule="html:credito promocional + vencimiento + condicion de metodo de pago",
+        price_baseline=None, price_offer=None, price_unit="USD (credito)",
+        currency="USD", discount_pct=None,
+        eligibility=(
+            "Cuenta Cerebras con un metodo de pago valido agregado. Credito unico, "
+            "no transferible, sin valor en efectivo; puede revocarse por fraude o abuso."
+        ),
+        card_required="yes", auto_renewal="no", student_required="no",
+        argentina_status="ARGENTINA_NO_CONFIRMADA", terms_url=source.terms_url,
+        confidence="alta",
+        notes=(
+            "Requiere metodo de pago (publicado). La pagina declara que no hay cargo ni "
+            "enrolamiento automatico; al vencer o agotarse el credito, el acceso a API y "
+            "Playground se pausa salvo compra de creditos PayGo. No es descuento porcentual. "
+            "Pais y elegibilidad argentina: No confirmado."
+        ),
+        dedupe_extra=source.id, tags=["creditos", "api", "requiere-tarjeta"],
+        benefit_kind="CREDITO",
+    )]
+
+
+_MODAL_CREDIT = re.compile(r"\$(\d+)\s*/\s*month free credits", re.I)
+_MODAL_PLAN = re.compile(r"\$0\s*\+\s*compute\s*/\s*month", re.I)
+
+
+def modal_free_credits(source: Source, res: FetchResult) -> list[Candidate]:
+    text = ht.to_text(res.text)
+    m = _MODAL_CREDIT.search(text)
+    if not m:
+        return []
+    amount = m.group(1)
+    plan = _MODAL_PLAN.search(text)
+    end = max(m.end(), plan.end() if plan else 0)
+    start = min(m.start(), plan.start() if plan else m.start())
+    return [Candidate(
+        source_id=source.id, provider_key=source.provider_key,
+        product="Modal (plan Starter)",
+        title=f"Modal Starter: USD {amount} mensuales de computo incluidos",
+        offer_type="CREDITS",
+        benefit=(
+            f"El plan Starter figura a USD 0 + computo por mes e incluye USD {amount} "
+            "mensuales de creditos de computo, 3 asientos de workspace, 100 contenedores "
+            "+ 10 GPU de concurrencia y 1 TiB/mes de egreso de red gratuito. El computo "
+            "por encima del credito incluido se factura por uso."
+        ),
+        official_url=source.url, evidence_url=source.url,
+        evidence_snippet=ht.snippet(text, start, end, 80),
+        extraction_rule="html:plan Starter + creditos mensuales de computo",
+        price_baseline=None, price_offer=None, price_unit="USD / mes (credito de computo)",
+        currency="USD", discount_pct=None,
+        eligibility="Cuenta Modal en plan Starter; el credito se renueva cada mes.",
+        card_required="unknown", auto_renewal="unknown", student_required="no",
+        argentina_status="ARGENTINA_NO_CONFIRMADA", terms_url=source.terms_url,
+        confidence="alta",
+        notes=(
+            "Es credito de computo incluido, no un descuento: no hay precio de lista "
+            "comparable. Los endpoints y el uso por encima del credito son facturables. "
+            "Tarjeta, pais y vencimiento: No confirmado en la pagina."
+        ),
+        dedupe_extra=source.id, tags=["creditos", "infraestructura", "mensual"],
+        benefit_kind="CREDITO",
+    )]
+
+
+_AZURE_STUDENT = re.compile(
+    r"Azure for Students gets you started with \$(\d+) in Azure credits to be used "
+    r"within the first (\d+) months", re.I)
+_AZURE_STUDENT_NOCARD = re.compile(r"without requiring a credit card at sign-up", re.I)
+_AZURE_STUDENT_ELIG = re.compile(r"You must affirm that you are age 18 or older", re.I)
+
+
+def azure_student_credit(source: Source, res: FetchResult) -> list[Candidate]:
+    text = ht.to_text(res.text)
+    m = _AZURE_STUDENT.search(text)
+    if not m:
+        return []
+    amount, months = m.group(1), m.group(2)
+    nocard = _AZURE_STUDENT_NOCARD.search(text)
+    elig = _AZURE_STUDENT_ELIG.search(text)
+    end = max(m.end(), nocard.end() if nocard else 0, elig.end() if elig else 0)
+    return [Candidate(
+        source_id=source.id, provider_key=source.provider_key,
+        product="Azure for Students",
+        title=f"Azure for Students: USD {amount} de credito en {months} meses, sin tarjeta",
+        offer_type="STUDENT",
+        benefit=(
+            f"Microsoft declara USD {amount} en creditos de Azure para usar dentro de los "
+            f"primeros {months} meses, mas servicios gratuitos seleccionados"
+            + (", sin requerir tarjeta de credito al registrarse." if nocard else ".")
+            + " Los creditos no usados no se acumulan ni se transfieren a otras "
+              "suscripciones."
+        ),
+        official_url=source.url, evidence_url=source.url,
+        evidence_snippet=ht.snippet(text, m.start(), end, 60),
+        extraction_rule="html:credito estudiantil + plazo + condicion de tarjeta",
+        price_baseline=None, price_offer=None, price_unit="USD (credito)",
+        currency="USD", discount_pct=None,
+        eligibility=(
+            "Solo estudiantes: hay que afirmar tener 18 anos o mas y asistir a una "
+            "institucion educativa acreditada que otorgue titulos de dos o cuatro anos, "
+            "como estudiante de tiempo completo."
+        ),
+        card_required="no" if nocard else "unknown",
+        auto_renewal="no", student_required="yes",
+        argentina_status="ARGENTINA_NO_CONFIRMADA", terms_url=source.terms_url,
+        confidence="alta",
+        notes=(
+            "Beneficio estudiantil, no descuento porcentual. La pagina declara que no se "
+            "requiere tarjeta al registrarse. Los creditos vencen a los 12 meses y no son "
+            "transferibles. Disponibilidad en Argentina: No confirmado."
+        ),
+        dedupe_extra=source.id, tags=["estudiantil", "creditos", "cloud", "sin-tarjeta"],
+        benefit_kind="BENEFICIO_ESTUDIANTIL",
+    )]
+
+
+_GCP_TRIAL = re.compile(
+    r"preloaded with \$(\d+) in free Welcome credit which is valid for (\d+) days", re.I)
+_GCP_NOCHARGE = re.compile(r"you won't be charged unless you manually upgrade", re.I)
+_GCP_CARD = re.compile(r"You can use your personal credit card to verify your identity", re.I)
+
+
+def gcp_free_trial(source: Source, res: FetchResult) -> list[Candidate]:
+    text = ht.to_text(res.text)
+    m = _GCP_TRIAL.search(text)
+    if not m:
+        return []
+    amount, days = m.group(1), m.group(2)
+    nocharge = _GCP_NOCHARGE.search(text)
+    card = _GCP_CARD.search(text)
+    end = max(m.end(), nocharge.end() if nocharge else 0, card.end() if card else 0)
+    start = min(m.start(), nocharge.start() if nocharge else m.start(),
+                card.start() if card else m.start())
+    return [Candidate(
+        source_id=source.id, provider_key=source.provider_key,
+        product="Google Cloud Free Trial",
+        title=f"Google Cloud: USD {amount} de credito de bienvenida por {days} dias",
+        offer_type="CREDITS",
+        benefit=(
+            f"La cuenta de facturacion de prueba se precarga con USD {amount} de credito "
+            f"de bienvenida valido por {days} dias. La pagina declara que la cuenta se "
+            "cierra sola al gastar el credito o cumplirse el plazo, y que no hay cargos "
+            "salvo upgrade manual a una cuenta paga. Tambien se pueden usar los productos "
+            "Free Tier hasta sus limites mensuales."
+        ),
+        official_url=source.url, evidence_url=source.url,
+        evidence_snippet=ht.snippet(text, start, end, 60),
+        extraction_rule="html:credito de bienvenida + validez + politica de cargos",
+        price_baseline=None, price_offer=None, price_unit="USD (credito)",
+        currency="USD", discount_pct=None,
+        eligibility=(
+            "Cuentas nuevas elegibles para Google Cloud Free Trial. Se usa una tarjeta "
+            "personal para verificar identidad; no hace falta tarjeta corporativa."
+        ),
+        card_required="yes" if card else "unknown",
+        auto_renewal="no", student_required="no",
+        argentina_status="ARGENTINA_NO_CONFIRMADA", terms_url=source.terms_url,
+        confidence="alta",
+        notes=(
+            "Credito de bienvenida con vencimiento, no descuento. Se requiere tarjeta "
+            "para verificar identidad, pero la pagina afirma que no hay cargos mientras "
+            "no se haga upgrade manual. Pais y elegibilidad concreta: No confirmado."
+        ),
+        dedupe_extra=source.id, tags=["creditos", "cloud", "prueba", "requiere-tarjeta"],
+        benefit_kind="CREDITO",
+    )]
+
+
+_AWS_EDUCATE_NOCARD = re.compile(r"No credit card needed", re.I)
+_AWS_EDUCATE = re.compile(
+    r"Learners as young as (\d+) can register for AWS Educate with just an email "
+    r"address, gaining access to free hands-on labs", re.I)
+
+
+def aws_educate(source: Source, res: FetchResult) -> list[Candidate]:
+    text = ht.to_text(res.text)
+    m = _AWS_EDUCATE.search(text)
+    nocard = _AWS_EDUCATE_NOCARD.search(text)
+    if not m or not nocard:
+        return []
+    age = m.group(1)
+    return [Candidate(
+        source_id=source.id, provider_key=source.provider_key,
+        product="AWS Educate",
+        title=f"AWS Educate: laboratorios gratuitos sin tarjeta, desde {age} anos",
+        offer_type="STUDENT",
+        benefit=(
+            f"AWS declara que estudiantes desde {age} anos pueden registrarse en AWS "
+            "Educate solo con un correo electronico, accediendo a laboratorios practicos "
+            "gratuitos para aprender y practicar cloud. La pagina indica explicitamente "
+            "'No credit card needed'."
+        ),
+        official_url=source.url, evidence_url=source.url,
+        evidence_snippet=ht.snippet(text, min(m.start(), nocard.start()),
+                                   max(m.end(), nocard.end()), 60),
+        extraction_rule="html:registro sin tarjeta + laboratorios gratuitos + edad minima",
+        price_baseline=None, price_offer=None, price_unit=None, currency=None,
+        discount_pct=None,
+        eligibility=(
+            f"Estudiantes desde {age} anos, registro con correo electronico. Pensado "
+            "para aprendizaje principiante y conexion con empleo."
+        ),
+        card_required="no", auto_renewal="no", student_required="yes",
+        argentina_status="ARGENTINA_NO_CONFIRMADA", terms_url=source.terms_url,
+        confidence="alta",
+        notes=(
+            "Son recursos y laboratorios de aprendizaje, NO creditos para APIs de IA: "
+            "la pagina no publica creditos de ese tipo y no se inventan. Sin tarjeta "
+            "(publicado). Disponibilidad en Argentina: No confirmado."
+        ),
+        dedupe_extra=source.id, tags=["estudiantil", "laboratorios", "sin-tarjeta"],
+        benefit_kind="BENEFICIO_ESTUDIANTIL",
+    )]
+
+
+_AZURE_FREE = re.compile(
+    r"Get free services and a \$(\d+) credit to explore Azure for up to (\d+) days", re.I)
+_AZURE_FREE_ALWAYS = re.compile(r"Free monthly amounts of 65\+ always-free services", re.I)
+_AZURE_FREE_HOLD = re.compile(r"temporary \$1 authorization placed on your card", re.I)
+
+
+def azure_free_account(source: Source, res: FetchResult) -> list[Candidate]:
+    text = ht.to_text(res.text)
+    m = _AZURE_FREE.search(text)
+    if not m:
+        return []
+    amount, days = m.group(1), m.group(2)
+    always = _AZURE_FREE_ALWAYS.search(text)
+    hold = _AZURE_FREE_HOLD.search(text)
+    end = max(m.end(), always.end() if always else 0, hold.end() if hold else 0)
+    start = min(m.start(), always.start() if always else m.start(),
+                hold.start() if hold else m.start())
+    return [Candidate(
+        source_id=source.id, provider_key=source.provider_key,
+        product="Azure free account",
+        title=f"Cuenta gratuita de Azure: USD {amount} de credito por {days} dias",
+        offer_type="CREDITS",
+        benefit=(
+            f"Microsoft declara servicios gratuitos mas USD {amount} de credito para "
+            f"explorar Azure hasta {days} dias"
+            + (", y cantidades mensuales gratuitas de 65+ servicios siempre gratuitos."
+               if always else ".")
+            + " Hay proteccion de gasto: la tarjeta no se cobra, y hay que pasar a "
+              "pay-as-you-go para continuar tras el plazo o al agotar el credito."
+        ),
+        official_url=source.url, evidence_url=source.url,
+        evidence_snippet=ht.snippet(text, start, end, 60),
+        extraction_rule="html:credito de cuenta gratuita + plazo + servicios siempre gratuitos",
+        price_baseline=None, price_offer=None, price_unit="USD (credito)",
+        currency="USD", discount_pct=None,
+        eligibility=(
+            "Clientes nuevos de Azure. Durante la verificacion puede colocarse una "
+            "autorizacion temporal de USD 1 que se revierte al verificar."
+        ),
+        card_required="yes" if hold else "unknown",
+        auto_renewal="no", student_required="no",
+        argentina_status="ARGENTINA_NO_CONFIRMADA", terms_url=source.terms_url,
+        confidence="alta",
+        notes=(
+            "Credito con vencimiento mas servicios gratuitos, no descuento porcentual. "
+            "Se pide tarjeta para verificacion (autorizacion temporal de USD 1 revertida), "
+            "con proteccion de gasto declarada. Pais: No confirmado. Es una oferta distinta "
+            "de Azure for Students: no se mezclan ni se duplican."
+        ),
+        dedupe_extra=source.id, tags=["creditos", "cloud", "requiere-tarjeta"],
+        benefit_kind="CREDITO",
+    )]
+
+
+_FIREWORKS_FREE = re.compile(r"([A-Za-z0-9 .\-]+?) is free through ([A-Za-z]+ \d{1,2})", re.I)
+_FIREWORKS_NOCARD = re.compile(r"No credit card required", re.I)
+
+
+def fireworks_free_model(source: Source, res: FetchResult) -> list[Candidate]:
+    text = ht.to_text(res.text)
+    m = _FIREWORKS_FREE.search(text)
+    nocard = _FIREWORKS_NOCARD.search(text)
+    if not m or not nocard:
+        return []
+    model, until = ht.collapse(m.group(1)), m.group(2)
+    if len(model) > 80:
+        return []
+    return [Candidate(
+        source_id=source.id, provider_key=source.provider_key,
+        product=f"Fireworks AI ({model})",
+        title=f"Fireworks: {model} gratis hasta el {until}",
+        offer_type="TRIAL",
+        benefit=(
+            f"La pagina de precios declara que {model} es gratuito hasta el {until} "
+            "en la UI y en la Serverless Training API, y que no se requiere tarjeta de "
+            "credito. El resto del uso se factura con creditos prepagos."
+        ),
+        official_url=source.url, evidence_url=source.url,
+        evidence_snippet=ht.snippet(text, m.start(), max(m.end(), nocard.end()), 60),
+        extraction_rule="html:modelo gratuito por tiempo limitado + condicion de tarjeta",
+        price_baseline=None, price_offer=None, price_unit=None, currency=None,
+        discount_pct=None,
+        eligibility="Cuenta Fireworks; oferta acotada a la UI y la Serverless Training API.",
+        card_required="no", auto_renewal="unknown", student_required="no",
+        argentina_status="ARGENTINA_NO_CONFIRMADA", terms_url=source.terms_url,
+        confidence="alta",
+        notes=(
+            f"Acceso gratuito por tiempo limitado (hasta el {until}), no un descuento "
+            "porcentual ni un plan gratuito permanente. La pagina no explicita el ano del "
+            "vencimiento: no se inventa ni se fija expires_at. Tarjeta no requerida "
+            "(publicado). Pais: No confirmado."
+        ),
+        dedupe_extra=slug(model), tags=["prueba", "tiempo-limitado", "sin-tarjeta"],
+        benefit_kind="PRUEBA_GRATUITA",
+    )]
+
+
 EXTRACTORS = {
     "openrouter_free_models": openrouter_free_models,
     "deepseek_offpeak": deepseek_offpeak,
@@ -744,6 +1141,14 @@ EXTRACTORS = {
     "groq_free_plan": groq_free_plan,
     "stability_welcome_credits": stability_welcome_credits,
     "cohere_trial_key": cohere_trial_key,
+    "alibaba_free_quota": alibaba_free_quota,
+    "cerebras_promo_credit": cerebras_promo_credit,
+    "modal_free_credits": modal_free_credits,
+    "azure_student_credit": azure_student_credit,
+    "gcp_free_trial": gcp_free_trial,
+    "aws_educate": aws_educate,
+    "azure_free_account": azure_free_account,
+    "fireworks_free_model": fireworks_free_model,
 }
 
 

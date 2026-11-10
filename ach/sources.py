@@ -205,6 +205,103 @@ SOURCES: list[Source] = [
         notes="Clave de evaluacion gratuita con tope mensual declarado. No es acceso "
               "de produccion ni ilimitado: las claves production son pagas.",
     ),
+    # --- P1.2: ampliacion masiva de fuentes oficiales -----------------------
+    Source(
+        id="alibaba-model-studio-free-quota",
+        name="Alibaba Cloud Model Studio - Cuota gratuita nuevos usuarios",
+        provider_key="alibaba",
+        url="https://www.alibabacloud.com/help/en/model-studio/new-free-quota",
+        kind="html", extractor="alibaba_free_quota",
+        official_domain="alibabacloud.com", priority="A", cadence_hours=24,
+        enabled=False,
+        terms_url="https://www.alibabacloud.com/help/en/model-studio/",
+        notes="Cuota gratuita por 90 dias. RIESGO: al agotarse se factura automaticamente; "
+              "la proteccion 'Free Quota Only' viene desactivada por defecto. "
+              "DESHABILITADA: el parser de robots del motor reduce las reglas con "
+              "comodin ('/*.json') al prefijo '/', bloqueando todo el host. El extractor "
+              "y su fixture estan listos; reactivar cuando se corrija ese parser.",
+    ),
+    Source(
+        id="cerebras-promo-credit",
+        name="Cerebras Inference - Credito promocional",
+        provider_key="cerebras",
+        url="https://inference-docs.cerebras.ai/support/pricing",
+        kind="html", extractor="cerebras_promo_credit",
+        official_domain="cerebras.ai", priority="B", cadence_hours=24,
+        terms_url="https://inference-docs.cerebras.ai/support/pricing",
+        notes="Credito unico de USD 5 a 30 dias agregando metodo de pago. La tabla de "
+              "tiers es cliente; se extrae solo el texto publicado en el HTML.",
+    ),
+    Source(
+        id="modal-free-credits",
+        name="Modal - Creditos de computo del plan Starter",
+        provider_key="modal",
+        url="https://modal.com/pricing",
+        kind="html", extractor="modal_free_credits",
+        official_domain="modal.com", priority="B", cadence_hours=24,
+        terms_url="https://modal.com/pricing",
+        notes="USD 30 mensuales de computo incluidos en Starter. El computo excedente "
+              "y los endpoints son facturables: no es un descuento.",
+    ),
+    Source(
+        id="azure-for-students",
+        name="Azure for Students - Credito estudiantil",
+        provider_key="azure",
+        url="https://azure.microsoft.com/en-us/pricing/offers/ms-azr-0170p",
+        kind="html", extractor="azure_student_credit",
+        official_domain="azure.microsoft.com", priority="A", cadence_hours=24,
+        terms_url="https://azure.microsoft.com/en-us/pricing/offers/ms-azr-0170p",
+        notes="USD 100 a 12 meses, sin tarjeta al registrarse. Solo estudiantes "
+              "mayores de 18 en institucion acreditada de tiempo completo.",
+    ),
+    Source(
+        id="gcp-free-trial",
+        name="Google Cloud Free Trial - Credito de bienvenida",
+        provider_key="google",
+        url="https://cloud.google.com/signup-faqs",
+        kind="html", extractor="gcp_free_trial",
+        official_domain="cloud.google.com", priority="A", cadence_hours=24,
+        terms_url="https://cloud.google.com/free/docs/free-cloud-features",
+        notes="USD 300 por 90 dias para cuentas nuevas. Tarjeta personal para verificar "
+              "identidad; sin cargos salvo upgrade manual.",
+    ),
+    Source(
+        id="aws-educate",
+        name="AWS Educate - Laboratorios gratuitos",
+        provider_key="aws",
+        url="https://aws.amazon.com/education/awseducate/",
+        kind="html", extractor="aws_educate",
+        official_domain="aws.amazon.com", priority="B", cadence_hours=24,
+        enabled=False,
+        terms_url="https://aws.amazon.com/education/awseducate/",
+        notes="Laboratorios y recursos de aprendizaje sin tarjeta, desde 13 anos. "
+              "No publica creditos para APIs de IA: no se inventan. "
+              "DESHABILITADA: el parser de robots del motor reduce las reglas con "
+              "comodin ('/*/blogs/') al prefijo '/', bloqueando todo el host. El "
+              "extractor y su fixture estan listos; reactivar al corregir ese parser.",
+    ),
+    Source(
+        id="azure-free-account",
+        name="Azure free account - Credito y servicios gratuitos",
+        provider_key="azure",
+        url="https://azure.microsoft.com/en-us/pricing/purchase-options/azure-account",
+        kind="html", extractor="azure_free_account",
+        official_domain="azure.microsoft.com", priority="A", cadence_hours=24,
+        terms_url="https://azure.microsoft.com/en-us/pricing/purchase-options/azure-account",
+        notes="USD 200 por 30 dias mas 65+ servicios siempre gratuitos. Oferta distinta "
+              "de Azure for Students: no se duplica.",
+    ),
+    Source(
+        id="fireworks-free-model",
+        name="Fireworks AI - Modelo gratuito por tiempo limitado",
+        provider_key="fireworks",
+        url="https://fireworks.ai/pricing",
+        kind="html", extractor="fireworks_free_model",
+        official_domain="fireworks.ai", priority="B", cadence_hours=24,
+        terms_url="https://fireworks.ai/pricing",
+        notes="Modelo gratuito hasta una fecha publicada, sin tarjeta. La pagina no "
+              "explicita el ano: no se fija expires_at ni se inventa.",
+    ),
 ]
 
 BY_ID: dict[str, Source] = {s.id: s for s in SOURCES}
@@ -285,6 +382,48 @@ PROVIDERS: dict[str, dict] = {
         "company": "Cohere",
         "category": "api",
         "official_domains": "cohere.com, docs.cohere.com",
+        "identity_status": "CONFIRMED",
+    },
+    "alibaba": {
+        "name": "Alibaba Cloud Model Studio",
+        "company": "Alibaba Cloud",
+        "category": "api",
+        "official_domains": "alibabacloud.com",
+        "identity_status": "CONFIRMED",
+    },
+    "cerebras": {
+        "name": "Cerebras Inference",
+        "company": "Cerebras Systems",
+        "category": "api",
+        "official_domains": "cerebras.ai, inference-docs.cerebras.ai",
+        "identity_status": "CONFIRMED",
+    },
+    "modal": {
+        "name": "Modal",
+        "company": "Modal Labs",
+        "category": "cloud_compute",
+        "official_domains": "modal.com",
+        "identity_status": "CONFIRMED",
+    },
+    "azure": {
+        "name": "Microsoft Azure",
+        "company": "Microsoft",
+        "category": "cloud_compute",
+        "official_domains": "azure.microsoft.com, microsoft.com",
+        "identity_status": "CONFIRMED",
+    },
+    "aws": {
+        "name": "Amazon Web Services",
+        "company": "Amazon",
+        "category": "cloud_compute",
+        "official_domains": "aws.amazon.com, amazon.com",
+        "identity_status": "CONFIRMED",
+    },
+    "fireworks": {
+        "name": "Fireworks AI",
+        "company": "Fireworks AI",
+        "category": "api",
+        "official_domains": "fireworks.ai",
         "identity_status": "CONFIRMED",
     },
 }

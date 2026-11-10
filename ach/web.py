@@ -73,6 +73,7 @@ BANDS = {
     "DESCUENTO_30_49": "b30",
     "PLAN_GRATUITO": "bv", "CUOTA_GRATUITA": "bv", "CREDITO": "bv",
     "PRUEBA_GRATUITA": "bv", "MODELO_GRATUITO": "bv",
+    "BENEFICIO_ESTUDIANTIL": "bv",
     "SIN_BASE_VERIFICADA": "bu", "SIN_DESCUENTO": "bu",
 }
 
@@ -267,6 +268,9 @@ class Handler(BaseHTTPRequestHandler):
     {opt('MODELO_GRATUITO', 'Modelo gratuito', band)}
     {opt('CREDITO', 'Credito promocional o recurrente', band)}
     {opt('PRUEBA_GRATUITA', 'Prueba gratuita', band)}
+    </optgroup>
+    <optgroup label="Beneficios estudiantiles">
+    {opt('BENEFICIO_ESTUDIANTIL', 'Beneficio estudiantil (credito o recursos)', band)}
     </optgroup>
     <optgroup label="Descuento porcentual real">
     {opt('GRATIS_100', '100% con base comparable', band)}
