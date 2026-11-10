@@ -105,6 +105,44 @@ def cmd_sources(args) -> int:
     return 0
 
 
+def cmd_discover(args) -> int:
+    from . import discover
+    destino = Path(args.out) if args.out else None
+    if args.list:
+        cands = discover.load_candidates(destino)
+        print(f"{len(cands)} candidatos guardados. Estado: {discover.STATUS_PENDING}.")
+        for c in cands:
+            print(f"  [{c.get('provider', '?')}] {c.get('title', '')[:72]}")
+            print(f"      {c['url']}")
+            print(f"      via={c.get('discovered_in', '')} "
+                  f"publicado={c.get('published_at') or 'N/D'} "
+                  f"descubierto={c.get('discovered_at_utc', '')}")
+        if not cands:
+            print("  (vacio: una busqueda sin coincidencias no genera resultados de relleno.)")
+        return 0
+
+    res = discover.discover(path=destino, max_items=args.max_items)
+    print(f"Feeds consultados: {len(res['feeds_ok'])}/{res['feeds_total']}")
+    for fe in res["feeds_ok"]:
+        print(f"  OK    {fe['id']:<22} items={fe['items']}")
+    for fe in res["feeds_error"]:
+        print(f"  ERROR {fe['id']:<22} http={fe['http']} robots={fe['robots']} "
+              f"{fe['error'][:60]}")
+    print(f"Enlaces examinados: {res['links_examined']} | "
+          f"con lenguaje de oportunidad: {res['links_relevant']}")
+    print(f"Candidatos nuevos: {res['new_candidates']} | "
+          f"total guardados: {res['total_saved']}")
+    for c in res["candidates"]:
+        print(f"  [{c['provider']}] {c['title'][:72]}")
+        print(f"      {c['url']}")
+    if not res["candidates"]:
+        print("  (sin candidatos nuevos: no se fabrican resultados.)")
+    print(f"Estado: {discover.STATUS_PENDING}. "
+          "Un enlace descubierto NO es una oferta verificada.")
+    print(f"Archivo: {res['path']}")
+    return 0
+
+
 def cmd_serve(args) -> int:
     from . import web
     web.serve(db_path=Path(args.db) if args.db else None, port=args.port)
@@ -345,6 +383,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_show)
 
     sub.add_parser("sources", help="estado de fuentes").set_defaults(func=cmd_sources)
+
+    dsc = sub.add_parser("discover",
+                         help="descubre enlaces candidatos en feeds oficiales (no verificados)")
+    dsc.add_argument("--list", action="store_true",
+                     help="muestra los candidatos guardados sin consultar la red")
+    dsc.add_argument("--out", help="JSON de candidatos (por defecto data/discovered_candidates.json)")
+    dsc.add_argument("--max-items", type=int, default=100,
+                     help="tope de items por feed (por defecto 100)")
+    dsc.set_defaults(func=cmd_discover)
 
     sv = sub.add_parser("serve", help="interfaz web local")
     sv.add_argument("--port", type=int, default=8765)
