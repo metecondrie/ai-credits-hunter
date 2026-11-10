@@ -44,14 +44,14 @@ def extraer(sid: str, texto: str | None = None):
 
 
 class CatalogoP12TestCase(unittest.TestCase):
-    def test_diecinueve_fuentes_registradas_diecisiete_habilitadas(self):
-        self.assertEqual(len(sources.SOURCES), 19)
-        # Alibaba y AWS Educate quedan registradas pero deshabilitadas: el parser
-        # de robots del motor bloquea el host completo (ver inventario).
-        self.assertEqual(len(sources.enabled_sources()), 17)
+    def test_catalogo_tras_p13(self):
+        # P1.3 corrigio el emparejamiento de comodines de robots.txt, reactivo
+        # Alibaba y AWS Educate, y sumo GitHub Pack, AWS Activate y Google Skills.
+        self.assertEqual(len(sources.SOURCES), 22)
+        self.assertEqual(len(sources.enabled_sources()), 22)
         for sid in ("alibaba-model-studio-free-quota", "aws-educate"):
-            self.assertFalse(sources.BY_ID[sid].enabled)
-            self.assertIn("DESHABILITADA", sources.BY_ID[sid].notes)
+            self.assertTrue(sources.BY_ID[sid].enabled)
+            self.assertIn("Reactivada en P1.3", sources.BY_ID[sid].notes)
 
     def test_fuentes_nuevas_registradas_con_url_oficial(self):
         for sid, (kind, provider) in NUEVAS.items():

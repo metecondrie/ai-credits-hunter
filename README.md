@@ -9,11 +9,12 @@ fuentes automáticamente. Cada hallazgo debe conservar un fragmento literal de l
 fuente, su URL, el hash SHA-256 del cuerpo descargado y el estado HTTP.
 
 - **Solo biblioteca estándar de Python (>= 3.11)**. Sin `pip install`, sin APIs pagas.
-- **17 fuentes habilitadas por HTTP** (19 registradas): OpenRouter, DeepSeek, Cloudflare
-  Workers AI, Kiro, Vercel AI Gateway, GroqCloud, Stability AI, Cohere, Cerebras, Modal,
-  Azure (estudiantes y cuenta gratuita), Google Cloud Free Trial, Fireworks AI y tres
-  feeds RSS oficiales. Alibaba Model Studio y AWS Educate están registradas pero
-  deshabilitadas por un bloqueo de `robots.txt` del motor.
+- **22 fuentes habilitadas por HTTP**: OpenRouter, DeepSeek, Cloudflare Workers AI,
+  Kiro, Vercel AI Gateway, GroqCloud, Stability AI, Cohere, Cerebras, Modal, Azure
+  (estudiantes y cuenta gratuita), Google Cloud (Free Trial y Skills credits),
+  Fireworks AI, Alibaba Model Studio, AWS (Educate y Activate), GitHub Student
+  Developer Pack y tres feeds RSS oficiales. En P1.3 se corrigió el parser de
+  `robots.txt`, que bloqueaba de más a Alibaba y AWS Educate.
 - **Inventario canónico de fuentes** en [`docs/fuentes_pendientes.md`](docs/fuentes_pendientes.md):
   23 fuentes evaluadas en P1.2 con URL, estado, beneficio, condiciones y motivo.
   Ninguna se elimina por no poder implementarse.
@@ -99,8 +100,11 @@ local ni a internet.
 | `gcp-free-trial` | HTML | USD 300 de crédito de bienvenida por 90 días. |
 | `azure-free-account` | HTML | USD 200 por 30 días más 65+ servicios siempre gratuitos. |
 | `fireworks-free-model` | HTML | Modelo gratuito por tiempo limitado, sin tarjeta. |
-| `alibaba-model-studio-free-quota` | HTML | Cuota gratuita de 90 días. **Deshabilitada** (robots). |
-| `aws-educate` | HTML | Laboratorios gratuitos sin tarjeta. **Deshabilitada** (robots). |
+| `alibaba-model-studio-free-quota` | HTML | Cuota gratuita de 90 días, con advertencia de cargo automático. |
+| `aws-educate` | HTML | Laboratorios gratuitos sin tarjeta, desde 13 años. |
+| `github-student-pack` | HTML | GitHub Pro y Copilot Student para estudiantes verificados. |
+| `aws-activate-startups` | HTML | Hasta USD 200.000 en créditos, **solo startups elegibles**. |
+| `gcp-students-skills-credits` | HTML | 200 Google Skills credits, vencen al año. |
 | `openai-news-rss`, `google-ai-blog-rss`, `huggingface-blog-rss` | RSS | Anuncios con lenguaje promocional (baja confianza). |
 
 Agregar una fuente es una entrada en `ach/sources.py` más un extractor en `ach/extract.py`.
@@ -167,6 +171,13 @@ conectividad**, porque consulta las fuentes reales por HTTP y depende del
 contenido cambiante de terceros. Puede omitirse con `ACH_OFFLINE=1`, que solo
 afecta a esa suite.
 
+En P1.3 no se agregaron pruebas: se ajustaron dos aserciones de recuento de catálogo
+y se hizo **una única prueba funcional de integración en vivo** con base temporal
+(2026-11-10): 22/22 fuentes HTTP 200, 0 errores, 50 ofertas con 50 claves de dedupe
+únicas, `PRAGMA integrity_check = ok` y `foreign_key_check` vacío, más un smoke test
+offline acotado (42/42) de los dos archivos de fuentes. El recuento 138/138 de arriba
+corresponde a la corrida de P1.2; la suite completa no se re-ejecutó en P1.3.
+
 El caso que antes exigía red,
 `test_openrouter_paid_model_blocked_without_authorization`, era un hueco de
 inyección: `chat()` aceptaba `http_post`, pero `assess_cost()` y `list_models()`
@@ -228,18 +239,19 @@ solo la usa la suite de integración para omitir las pruebas con red (sección 7
 
 ## 10. Limitaciones conocidas
 
-1. **Cobertura**: 19 fuentes registradas, 17 habilitadas. Gemini API sigue afuera: su
-   página de precios se renderiza 100 % por JavaScript y el HTML servido no contiene
-   la evidencia; la variante oficial `.md` tampoco (probada en P1.2).
+1. **Cobertura**: 22 fuentes habilitadas. Gemini API sigue afuera: su página de precios
+   se renderiza 100 % por JavaScript y el HTML servido no contiene la evidencia; la
+   variante oficial `.md` tampoco (probada en P1.2).
    GroqCloud sí pudo incorporarse: aunque la tabla visible es cliente, el payload
    del lado del servidor incluye el array etiquetado `freeRows`, que se lee de forma
    reproducible y sin navegador. Hugging Face Inference Providers se descartó porque
    su página declara que las cuentas gratuitas **no** reciben créditos incluidos.
-   **Alibaba Model Studio y AWS Educate están deshabilitadas**: el parser mínimo de
-   `robots.txt` del motor (`_Robots.allowed` en `ach/fetch.py`) reduce las reglas con
-   comodín a su prefijo previo al `*`, así que `Disallow: /*.json` o `/*/blogs/`
-   bloquean el host entero aunque la ruta no esté prohibida. Sus extractores,
-   fixtures y pruebas están listos; falta corregir ese parser y reactivarlas.
+   **El bloqueo de robots que afectaba a Alibaba Model Studio y AWS Educate quedó
+   corregido en P1.3**: el parser reducía las reglas con comodín al prefijo previo al
+   `*`, así que `/*.json` o `/*/blogs/*/tag/` bloqueaban el host entero. Ahora el
+   comodín se empareja correctamente (con ancla `$` y query string) y **la protección
+   sigue activa**: se verificó contra las reglas reales que las rutas prohibidas
+   continúan bloqueadas. No se eludió ningún bloqueo.
    El detalle de las 23 fuentes evaluadas está en `docs/fuentes_pendientes.md`.
 2. **`deepseek-pricing`**: reparado el 2026-11-10 (P0.2, sección 12). La causa no era un
    cambio de maquetado: la URL configurada no llevaba barra final y el host estático
@@ -249,8 +261,8 @@ solo la usa la suite de integración para omitir las pruebas con red (sección 7
    devuelve vacío y `source.last_candidates` lo deja visible.
 3. **RSS**: baja confianza por diseño; requieren abrir el enlace.
 4. **Sin automatización**: no hay tarea programada; ejecutar es manual.
-5. **Un solo hilo de red**: la corrida es secuencial; con 17 fuentes habilitadas tarda
-   más que con las 8 originales (el retardo mínimo por host sigue aplicando).
+5. **Un solo hilo de red**: la corrida es secuencial; con 22 fuentes habilitadas tarda
+   unos 50 s (el retardo mínimo por host sigue aplicando).
 6. **Sin reintento ante 429**: se reporta el error y se sigue.
 7. **Precios en texto**: `baseline_price`/`offer_price` son numéricos solo cuando la página
    publica números comparables.
@@ -451,24 +463,26 @@ Esta versión no declara una licencia; se publica para lectura y evaluación.
 
 ### P1 — Aumentar la utilidad real del cazador
 
-6. **Ampliar y administrar las fuentes.** **Avance (P1.1 + P1.2, 2026-11-10):** el
-   catálogo pasó de 8 a **19 fuentes registradas, 17 habilitadas**. P1.1 incorporó
-   GroqCloud, Stability AI y Cohere; P1.2 incorporó Cerebras, Modal, Azure for
-   Students, Google Cloud Free Trial, Azure free account y Fireworks AI, y dejó
-   registradas pero deshabilitadas Alibaba Model Studio y AWS Educate por el
-   bloqueo de robots descrito en la sección 10. El inventario canónico de las 23
-   fuentes evaluadas en P1.2 —con estado, beneficio, condiciones y motivo— está en
+6. **Ampliar y administrar las fuentes.** **Avance (P1.1 + P1.2 + P1.3, 2026-11-10):**
+   el catálogo pasó de 8 a **22 fuentes, todas habilitadas**. P1.1 incorporó GroqCloud,
+   Stability AI y Cohere; P1.2 sumó Cerebras, Modal, Azure for Students, Google Cloud
+   Free Trial, Azure free account y Fireworks AI; P1.3 corrigió el parser de robots,
+   reactivó Alibaba Model Studio y AWS Educate, e incorporó GitHub Student Developer
+   Pack (solo las ofertas propias de GitHub), AWS Activate (con elegibilidad explícita
+   de startup) y los 200 Google Skills credits (sin duplicar el Free Trial).
+   El inventario canónico de las 23 fuentes evaluadas —con estado, beneficio,
+   condiciones y motivo— está en
    [`docs/fuentes_pendientes.md`](docs/fuentes_pendientes.md); ninguna fuente se
-   elimina por no poder implementarse.
+   elimina por no poder implementarse. Tras P1.3 quedan 11 `INTEGRADA`, 4 `BLOQUEADA`,
+   7 `DESCARTADA` y 1 `PENDIENTE` en ese inventario.
    **Sigue pendiente** el catálogo administrable (URL, proveedor, dominio oficial,
    tipo, método de extracción, prioridad, cadencia, términos, estado, última
    revisión y motivos de fallo) y la interfaz para habilitar/deshabilitar fuentes
    sin editar Python: hoy la base almacena resultados/estado, pero no reemplaza al
-   registro de extractores. También quedan por integrar GitHub Student Developer
-   Pack, AWS Activate y los 200 Google Skills credits (estado `VALIDADA` en el
-   inventario), y por investigar GitHub Education y Alibaba Cloud Model Studio
-   desde una ruta permitida por robots. Incorporar únicamente fuentes con
-   extracción verificable, respetando términos y límites.
+   registro de extractores. También quedan las ofertas de terceros del GitHub Pack,
+   Together AI (columnas de tabla ambiguas) y las fuentes bloqueadas por 403 o JS.
+   Incorporar únicamente fuentes con extracción verificable, respetando términos
+   y límites.
 
 7. **Descubrir fuentes nuevas, no solo volver a consultar las conocidas.**
    Añadir una etapa de descubrimiento mediante feeds, APIs públicas y búsquedas
