@@ -128,6 +128,11 @@ verificados y extracción de precios de DeepSeek. En la comprobación del 2026-1
 fragilidad real de la integración con páginas externas, aunque el resto del motor
 continúa funcionando; no debe marcarse la suite completa como aprobada.
 
+En la rama `fix/p01-is-offer-booleano-estricto` (2026-11-10) las pruebas offline pasan a
+**57 en verde** (11 unitarias, 14 de extractores, **32 de IA**) por los 7 casos de
+regresión del P0.1. La integración **no se re-ejecutó** en esa rama: sigue en 9 de 11
+según la comprobación del 2026-11-09.
+
 Para correr la integración sin red:
 
 ```bash
@@ -204,14 +209,28 @@ Esta versión no declara una licencia; se publica para lectura y evaluación.
 
 ### P0 — Corregir antes de considerar una nueva versión estable
 
-1. **Corregir el parseo del veredicto de IA.** En `ach/ai_classify.py`,
-   `parse_response()` utiliza `bool(data["is_offer"])`. En Python,
-   `bool("false")` vale `True`: una respuesta JSON con texto en vez de booleano
-   podría clasificar erróneamente una oferta. Exigir tipo booleano estricto,
-   rechazar valores inválidos y agregar casos de prueba para `false`,
-   `"false"`, `null` y otros tipos. El campo `is_offer=false` de una IA tampoco
-   debe confundirse con una verificación documental: conservar el registro,
-   pero presentarlo como candidato rechazado o pendiente de revisión.
+1. **Corregir el parseo del veredicto de IA.** — **VALIDACIÓN ESTRICTA RESUELTA**
+   (2026-11-10, rama `fix/p01-is-offer-booleano-estricto`, commit base `30181c3`).
+   En `ach/ai_classify.py`, `parse_response()` utilizaba `bool(data["is_offer"])`.
+   En Python, `bool("false")` vale `True`: una respuesta JSON con texto en vez de
+   booleano podía clasificar erróneamente una oferta. Ahora el campo se acepta
+   **solo** si es un booleano JSON auténtico (`isinstance(valor, bool)`): `true` y
+   `false` pasan; cadenas (`"false"`, `"true"`, `"no"`, `""`), números (`0`, `1`,
+   `1.0`), `null`, listas y objetos levantan `ValueError` con el nombre del campo y
+   el tipo recibido. El error se gestiona por la vía ya existente: `_attempt_target()`
+   devuelve `TODOS_LOS_MODELOS_FALLARON` (o prueba el siguiente modelo de la cadena),
+   `pipeline.run()` conserva la oferta y su evidencia, guarda el assessment con
+   `is_offer NULL` y `error`, suma `ai_blocked` y la corrida **no** se interrumpe ni
+   genera una clasificación positiva. Pruebas: 7 casos nuevos en
+   `tests/test_ach_ai.py` (`ParseTestCase`, `ClassifyTestCase`,
+   `FullJourneyTestCase`), 32/32 en verde offline y comprobados en rojo (18 fallos)
+   contra el código previo.
+
+   **Sigue abierto** el segundo requisito del ítem: que `is_offer=false` de una IA no
+   se confunda con una verificación documental y se presente como candidato rechazado
+   o pendiente de revisión. No se tocó la presentación (`ach/web.py` muestra
+   «No es oferta» y «IA bloqueada», pero eso no se auditó ni se cambió en esta
+   entrega).
 
 2. **Reparar el extractor de DeepSeek y hacer resilientes las pruebas live.**
    Revisar `ach/extract.py` y `ach/sources.py` frente a la página actual de
