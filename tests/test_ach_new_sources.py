@@ -39,9 +39,11 @@ def extraer(sid: str, raw: str | None = None):
 
 
 class CatalogoTestCase(unittest.TestCase):
-    def test_once_fuentes_operativas(self):
-        self.assertEqual(len(sources.SOURCES), 11)
-        self.assertEqual(len(sources.enabled_sources()), 11)
+    def test_total_fuentes_operativas(self):
+        # P1.1 dejo 11; P1.2 registro 8 mas (19 en catalogo, 17 habilitadas:
+        # Alibaba y AWS Educate quedan bloqueadas por robots). Ver inventario.
+        self.assertEqual(len(sources.SOURCES), 19)
+        self.assertEqual(len(sources.enabled_sources()), 17)
         for sid in NUEVAS:
             self.assertIn(sid, sources.BY_ID)
 
