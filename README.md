@@ -369,9 +369,7 @@ Esta versión no declara una licencia; se publica para lectura y evaluación.
    con `discount_pct=None`; `SIN_BASE_VERIFICADA` queda para quien reclama un
    descuento sin base equivalente. (b) Vercel pasa de `NETWORK_VERIFIED` a
    `CONTENT_VERIFIED`: un crédito no tiene magnitud de precio comparable, y
-   mentiría mantener el nivel anterior. (c) El recuento de la sección 7 quedó
-   desactualizado por los casos nuevos; se dejó intacta porque esta entrega
-   actualiza solo el apartado P0.3. (d) Ninguna fuente emite hoy `PRUEBA_GRATUITA`
+   mentiría mantener el nivel anterior. (c) Ninguna fuente emite hoy `PRUEBA_GRATUITA`
    ni un `DESCUENTO` genérico: la taxonomía queda lista para cuando aparezcan.
 
 4. **Arreglar la documentación de dependencias e instalación.**
