@@ -77,6 +77,7 @@ SOURCES: list[Source] = [
             "unit_pattern": r"\$([\d.]+)\s*per\s*1,?000\s*Neurons",
             "product": "Workers AI",
             "offer_type": "FREE_TIER",
+            "benefit_kind": "CUOTA_GRATUITA",
             "price_unit": "USD / 1000 Neurons",
             "title_template": "Asignacion gratuita de {amount} Neurons por dia",
             "benefit_template": (
@@ -113,6 +114,7 @@ SOURCES: list[Source] = [
         params={
             "credit_pattern": r"Monthly credit\s+\$([\d.]+)\s*/\s*month included",
             "product": "Vercel AI Gateway",
+            "benefit_kind": "CREDITO",
             "title_template": "Credito mensual de ${amount} en AI Gateway",
             "benefit_template": (
                 "Cada equipo de Vercel recibe ${amount} de credito mensual incluido en AI Gateway, "

@@ -17,6 +17,73 @@ BANDS = [
     (30.0, "DESCUENTO_30_49"),
 ]
 
+# Clases de beneficio. La gratuidad NO es un descuento porcentual: un plan free,
+# una cuota incluida o un credito no tienen un precio de lista comparable.
+BENEFIT_KINDS = (
+    "DESCUENTO",        # porcentaje real sobre precios comparables
+    "TARIFA_HORARIA",   # tarifa especial por horario (peak vs off-peak)
+    "PLAN_GRATUITO",    # plan gratuito permanente
+    "CUOTA_GRATUITA",   # cuota gratuita incluida
+    "CREDITO",          # creditos promocionales o recurrentes
+    "PRUEBA_GRATUITA",  # prueba gratuita
+    "MODELO_GRATUITO",  # modelo sin costo por token
+)
+
+# Solo estas clases comparan dos precios del mismo producto, modalidad, unidad
+# y periodo; unicamente ellas pueden llevar un porcentaje.
+KINDS_CON_COMPARACION = {"DESCUENTO", "TARIFA_HORARIA"}
+
+_KIND_POR_TIPO = {
+    "DISCOUNT": "DESCUENTO",
+    "OFF_PEAK_DISCOUNT": "TARIFA_HORARIA",
+    "FREE_TIER": "PLAN_GRATUITO",
+    "FREE_PLAN": "PLAN_GRATUITO",
+    "FREE_QUOTA": "CUOTA_GRATUITA",
+    "FREE_MODEL": "MODELO_GRATUITO",
+    "CREDITS": "CREDITO",
+    "TRIAL": "PRUEBA_GRATUITA",
+}
+
+
+def benefit_kind(c: Candidate) -> str:
+    """Clase declarada por el extractor, o inferida del tipo de oferta."""
+    return c.benefit_kind or _KIND_POR_TIPO.get(c.offer_type, "")
+
+
+# Etiquetas legibles compartidas por la interfaz, el reporte y la CLI: la
+# gratuidad se nombra, nunca se presenta como un porcentaje de descuento.
+KIND_LABELS = {
+    "PLAN_GRATUITO": "Plan gratuito",
+    "CUOTA_GRATUITA": "Cuota incluida",
+    "CREDITO": "Credito",
+    "PRUEBA_GRATUITA": "Prueba gratuita",
+    "MODELO_GRATUITO": "Modelo gratuito",
+    "SIN_BASE_VERIFICADA": "sin base comparable",
+    "SIN_DESCUENTO": "sin descuento",
+}
+
+
+def kind_label(band: str) -> str:
+    return KIND_LABELS.get(band, "sin base comparable")
+
+
+def precios_comparables(c: Candidate) -> bool:
+    """Exige base publicada positiva, precio oferta, unidad y moneda declaradas.
+
+    Sin equivalencia de producto, modalidad, unidad y periodo no hay porcentaje
+    posible: una cuota diaria gratis contra el precio del excedente, o un plan
+    FREE contra un PRO con otros limites, no son la misma cosa.
+    """
+    return (
+        benefit_kind(c) in KINDS_CON_COMPARACION
+        and c.price_baseline is not None
+        and c.price_baseline > 0
+        and c.price_offer is not None
+        and c.price_offer >= 0
+        and bool(c.price_unit)
+        and bool(c.currency)
+    )
+
 
 def discount_band(pct: float | None) -> str:
     if pct is None:
@@ -102,6 +169,11 @@ def confidence(c: Candidate, level: str) -> str:
 def assess(c: Candidate, http_status: int, fixture: bool = False) -> Candidate:
     """Aplica todas las reglas sobre el candidato, en sitio, y lo devuelve."""
     c.offer_type = refine_type(c)
+    # Guarda central: ningun extractor puede fabricar un porcentaje sin dos
+    # precios equivalentes del mismo producto, modalidad, unidad y periodo.
+    if c.discount_pct is not None and not precios_comparables(c):
+        c.discount_pct = None
+        c.notes = (c.notes + " [porcentaje descartado: sin precios comparables]").strip()
     c.argentina_status = argentina_status(c)
     c.card_required = card_requirement(c)
     level = verification_level(c, http_status, fixture)
@@ -113,4 +185,14 @@ def assess(c: Candidate, http_status: int, fixture: bool = False) -> Candidate:
 
 
 def band_of(c: Candidate) -> str:
-    return discount_band(c.discount_pct)
+    """Porcentaje real, clase de gratuidad, o SIN_BASE_VERIFICADA.
+
+    La banda es el campo que la interfaz filtra y muestra; no forma parte de
+    dedupe_key(), asi que corregir la semantica no duplica ofertas.
+    """
+    if c.discount_pct is not None and precios_comparables(c):
+        return discount_band(c.discount_pct)
+    kind = benefit_kind(c)
+    if kind and kind not in KINDS_CON_COMPARACION:
+        return kind
+    return "SIN_BASE_VERIFICADA"

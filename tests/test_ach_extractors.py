@@ -240,28 +240,56 @@ class TestDeepSeekPersistence(unittest.TestCase):
 
 
 class TestHtmlSources(unittest.TestCase):
+    """P0.3: gratuidad no es descuento. Sin base comparable no hay porcentaje."""
+
     def test_cloudflare_free_allocation(self):
         src = BY_ID["cloudflare-workers-ai-pricing"]
         c = extract.extract(src, load(src.id))
         self.assertEqual(len(c), 1)
-        self.assertEqual(c[0].discount_pct, 100.0)
+        self.assertIsNone(c[0].discount_pct)          # antes: 100.0 artificial
+        self.assertIsNone(c[0].price_baseline)        # el excedente no es base comparable
+        self.assertEqual(c[0].price_offer, 0.0)
+        self.assertEqual(c[0].benefit_kind, "CUOTA_GRATUITA")
         self.assertIn("10,000", c[0].benefit)
-        self.assertEqual(c[0].price_baseline, 0.011)
+        self.assertIn("0.011", c[0].benefit)          # el dato sigue, como contexto
 
     def test_kiro_free_plan(self):
         src = BY_ID["kiro-pricing"]
         c = extract.extract(src, load(src.id))
         self.assertEqual(len(c), 1)
         self.assertIn("50", c[0].title)
-        self.assertEqual(c[0].price_baseline, 20.0)
+        self.assertIsNone(c[0].discount_pct)          # antes: 100.0 artificial
+        self.assertIsNone(c[0].price_baseline)        # PRO es otro producto
         self.assertEqual(c[0].price_offer, 0.0)
+        self.assertEqual(c[0].benefit_kind, "PLAN_GRATUITO")
+        self.assertIn("20", c[0].benefit)             # el precio PRO sigue informado
 
     def test_vercel_monthly_credit(self):
         src = BY_ID["vercel-ai-gateway-pricing"]
         c = extract.extract(src, load(src.id))
         self.assertEqual(len(c), 1)
-        self.assertEqual(c[0].price_baseline, 5.0)
+        self.assertIsNone(c[0].discount_pct)          # antes: 100.0 hardcodeado
+        self.assertIsNone(c[0].price_baseline)        # un credito no es un precio de lista
+        self.assertIsNone(c[0].price_offer)
+        self.assertEqual(c[0].benefit_kind, "CREDITO")
         self.assertIn("5", c[0].title)
+
+    def test_openrouter_free_models_have_no_percentage(self):
+        src = BY_ID["openrouter-free-models"]
+        for c in extract.extract(src, load(src.id)):
+            self.assertIsNone(c.discount_pct)
+            self.assertIsNone(c.price_baseline)
+            self.assertEqual(c.benefit_kind, "MODELO_GRATUITO")
+
+    def test_deepseek_offpeak_keeps_real_discount(self):
+        """P0.2 intacto: mismo producto, unidad y modalidad -> 50% legitimo."""
+        src = BY_ID["deepseek-pricing"]
+        c = extract.extract(src, load(src.id))
+        self.assertEqual(len(c), 6)
+        for x in c:
+            self.assertEqual(x.benefit_kind, "TARIFA_HORARIA")
+            self.assertAlmostEqual(x.discount_pct, 50.0, places=2)
+            self.assertGreater(x.price_baseline, 0)
 
 
 class TestRss(unittest.TestCase):

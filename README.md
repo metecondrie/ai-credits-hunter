@@ -124,13 +124,15 @@ python -m unittest discover -s tests -p "test_ach_integration.py"
 Resultado en la versión publicada: **50 pruebas offline en verde** (11 unitarias, 14 de
 extractores, 25 de IA) y **9 de 11 en integración**.
 
-Con P0.1 y P0.2 integrados (2026-11-10) el total pasa a **70 casos** (11 unitarias,
-**27 de extractores**, **32 de IA**): +13 por el P0.2 y +7 por el P0.1. Con los
-sockets bloqueados y bases temporales pasan **69 de 70**; **no debe afirmarse 70/70**.
-Las 38 deterministas (11 unitarias + 27 de extractores) están en verde y de las 32 de
-IA pasan 31. La restante, `test_openrouter_paid_model_blocked_without_authorization`,
+Con P0.1, P0.2 y P0.3 integrados (2026-11-10) el total pasa a **93 casos** (11
+unitarias, **29 de extractores**, **32 de IA** y **21 de semántica de descuentos**):
++13 por el P0.2, +7 por el P0.1 y +23 por el P0.3. Con los sockets bloqueados y
+bases temporales pasan **92 de 93**; **no debe afirmarse 93/93**. Las 61
+deterministas (11 unitarias + 29 de extractores + 21 de semántica) están en verde
+y de las 32 de IA pasan 31. La restante,
+`test_openrouter_paid_model_blocked_without_authorization`,
 **exige red**: `assess_cost()` llama a `list_models()` sin recibir el `http_post`
-inyectado. Es un problema **preexistente**, ajeno a ambas correcciones (falla igual
+inyectado. Es un problema **preexistente**, ajeno a las correcciones (falla igual
 sobre el `main` anterior con la red bloqueada) y solo pasa si se permite esa salida
 HTTP, así que no debe contarse como prueba offline.
 
@@ -299,13 +301,76 @@ Esta versión no declara una licencia; se publica para lectura y evaluación.
    mantenimiento»: hoy una fuente con HTTP 200 y 0 coincidencias queda visible en
    `source.last_candidates` y `source_run`, pero no tiene un estado propio.
 
-3. **Eliminar falsas comparaciones de precios.** Las cuotas gratis de
-   Cloudflare, el plan FREE de Kiro y el crédito mensual de Vercel no son
-   necesariamente descuentos del 100 % sobre un plan pago. Verificar que
-   denominador, unidad, período, límites y producto sean equivalentes.
-   Si no lo son, mostrar «plan gratuito», «cuota incluida» o «crédito» y
-   `SIN_BASE_VERIFICADA`, sin porcentaje artificial. Archivos:
-   `ach/classify.py`, `ach/extract.py`, `ach/web.py` y tests.
+3. **Eliminar falsas comparaciones de precios.** — **RESUELTO** (2026-11-10,
+   rama `fix/p03-discount-semantics`, base `c72eee5`).
+
+   **Defectos encontrados.** Tres fuentes fabricaban un 100 % sin base comparable:
+   Cloudflare comparaba la cuota diaria incluida contra el precio del **excedente**
+   (`0.011` por 1000 Neurons: otro período y otros límites); Kiro comparaba el plan
+   **FREE** contra el **PRO** (`20` USD/usuario/mes: otro producto, otros créditos y
+   límites); Vercel usaba el **importe del crédito** (`5` USD/mes) como si fuera un
+   precio de lista, con `discount_pct=100.0` hardcodeado. Las tres terminaban en
+   `GRATIS_100`. OpenRouter no inventaba porcentaje, pero se mostraba como
+   «sin base» en vez de como modelo gratuito.
+
+   **Taxonomía.** `ach/classify.py` define siete clases de beneficio
+   (`DESCUENTO`, `TARIFA_HORARIA`, `PLAN_GRATUITO`, `CUOTA_GRATUITA`, `CREDITO`,
+   `PRUEBA_GRATUITA`, `MODELO_GRATUITO`). El extractor declara la clase en
+   `Candidate.benefit_kind`; si no la declara, se infiere de `offer_type`.
+
+   **Regla de comparabilidad.** Solo `DESCUENTO` y `TARIFA_HORARIA` pueden llevar
+   porcentaje, y únicamente con base publicada positiva, precio oferta, unidad y
+   moneda declaradas (`precios_comparables()`). `assess()` aplica una **guarda
+   central**: descarta cualquier porcentaje que no cumpla la equivalencia y lo
+   deja anotado en `notes`, así ningún extractor futuro puede fabricar un
+   descuento. `GRATIS_100` queda reservado a un 100 % real con base comparable.
+
+   **Resultado por fuente** (antes → después):
+
+   | Fuente | Antes | Después |
+   |---|---|---|
+   | Cloudflare Workers AI | `100.0` / `GRATIS_100`, base `0.011` | sin porcentaje / `CUOTA_GRATUITA` |
+   | Kiro | `100.0` / `GRATIS_100`, base `20.0` | sin porcentaje / `PLAN_GRATUITO` |
+   | Vercel AI Gateway | `100.0` / `GRATIS_100`, base `5.0` | sin porcentaje / `CREDITO` |
+   | OpenRouter | «sin base» / `SIN_BASE_VERIFICADA` | `MODELO_GRATUITO` |
+   | DeepSeek (P0.2) | `50.0` / `DESCUENTO_50_69` | **igual, intacto** |
+
+   Los datos oficiales no se pierden: los 10 000 Neurons/día, el excedente a
+   `0.011`, los 50 créditos de Kiro, el PRO a `20` y el crédito de `5` siguen en
+   `title`/`benefit` y en la evidencia literal. Solo se eliminan el porcentaje
+   artificial y el `price_baseline` no comparable.
+
+   **Interfaz.** `ach/web.py` nombra la gratuidad («Plan gratuito», «Cuota
+   incluida», «Crédito», «Modelo gratuito», «Prueba gratuita») en vez de mostrar
+   un porcentaje; el «de X» tachado solo aparece con descuento real; los filtros
+   separan **Gratuidad (sin porcentaje)** de **Descuento porcentual real**; la
+   fila «Descuento» del detalle pasó a «Beneficio». Reporte y CLI comparten las
+   etiquetas vía `classify.kind_label()`.
+
+   **Sin duplicados ni evidencia alterada.** La clase viaja en `discount_band`,
+   que **no** forma parte de `dedupe_key()`; `offer_type`, `product`,
+   `price_unit` y `dedupe_extra` quedan iguales, así que una base existente
+   actualiza la oferta en vez de crear otra. No se agregó ninguna migración.
+
+   **Pruebas.** 21 casos nuevos en `tests/test_ach_discount_semantics.py` y 2 en
+   `tests/test_ach_extractors.py` (29 en ese archivo), más 3 aserciones corregidas
+   que asumían el 100 % artificial. Offline, con sockets bloqueados y bases
+   temporales: **92 de 93 en verde, 0 fallos**; el único error es
+   `test_openrouter_paid_model_blocked_without_authorization`, preexistente y
+   ajeno al P0.3 (exige red porque `assess_cost()` no recibe el `http_post`
+   inyectado). Incluyen integridad SQLite, `foreign_key_check` vacío, segunda
+   corrida sin duplicados (`offers_new=0`, mismos `offer_id`), evidencia y
+   `content_sha256` intactos, y rendered de la interfaz. Contra el código
+   original, la suite nueva da 12 fallos y 20 errores, y extractores 3 fallos y 2
+   errores.
+
+   **Desvíos y pendientes declarados.** (a) Cuando no hay base comparable se
+   muestra la clase de beneficio (`PLAN_GRATUITO`, `CUOTA_GRATUITA`, `CREDITO`)
+   con `discount_pct=None`; `SIN_BASE_VERIFICADA` queda para quien reclama un
+   descuento sin base equivalente. (b) Vercel pasa de `NETWORK_VERIFIED` a
+   `CONTENT_VERIFIED`: un crédito no tiene magnitud de precio comparable, y
+   mentiría mantener el nivel anterior. (c) Ninguna fuente emite hoy `PRUEBA_GRATUITA`
+   ni un `DESCUENTO` genérico: la taxonomía queda lista para cuando aparezcan.
 
 4. **Arreglar la documentación de dependencias e instalación.**
    `requirements.txt` contiene texto de documentación, no una lista válida

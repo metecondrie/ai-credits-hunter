@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import config, store
+from . import classify, config, store
 from .pipeline import RunReport
 
 
@@ -25,7 +25,7 @@ def _fmt_price(v, unit, currency) -> str:
 
 def _fmt_disc(o: dict) -> str:
     if o["discount_pct"] is None:
-        return "sin base"
+        return classify.kind_label(o["discount_band"])
     return f"{o['discount_pct']:.1f}%"
 
 

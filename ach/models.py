@@ -54,6 +54,10 @@ class Candidate:
     notes: str = ""
     dedupe_extra: str = ""
     tags: list[str] = field(default_factory=list)
+    # Clase de beneficio declarada por el extractor. No se persiste como columna
+    # ni entra en dedupe_key(): solo determina la banda visible, para no crear
+    # ofertas duplicadas al corregir la semantica de un beneficio.
+    benefit_kind: str = ""
 
     def dedupe_key(self) -> str:
         extra = self.dedupe_extra or self.official_url or self.title
