@@ -124,22 +124,23 @@ python -m unittest discover -s tests -p "test_ach_integration.py"
 Resultado en la versión publicada: **50 pruebas offline en verde** (11 unitarias, 14 de
 extractores, 25 de IA) y **9 de 11 en integración**.
 
-En la rama `fix/p02-deepseek-pricing` (2026-11-10) hay **63 pruebas** (11 unitarias,
-**27 de extractores**, 25 de IA) por los 13 casos de regresión del P0.2. Con los
-sockets bloqueados y bases temporales pasan **62 de 63**: las 38 deterministas
-(11 unitarias + 27 de extractores) están en verde, y de las 25 de IA pasan 24. La
-restante, `test_openrouter_paid_model_blocked_without_authorization`, **exige red**:
-`assess_cost()` llama a `list_models()` sin recibir el `http_post` inyectado. Es
-preexistente y ajena al P0.2 (falla igual sobre `main` con la red bloqueada) y solo
-pasa si se permite esa salida HTTP, así que no debe contarse como prueba offline.
-Las dos pruebas de
-integración que fallaban (`test_at_least_three_sources_verified` y
+Con P0.1 y P0.2 integrados (2026-11-10) el total pasa a **70 casos** (11 unitarias,
+**27 de extractores**, **32 de IA**): +13 por el P0.2 y +7 por el P0.1. Con los
+sockets bloqueados y bases temporales pasan **69 de 70**; **no debe afirmarse 70/70**.
+Las 38 deterministas (11 unitarias + 27 de extractores) están en verde y de las 32 de
+IA pasan 31. La restante, `test_openrouter_paid_model_blocked_without_authorization`,
+**exige red**: `assess_cost()` llama a `list_models()` sin recibir el `http_post`
+inyectado. Es un problema **preexistente**, ajeno a ambas correcciones (falla igual
+sobre el `main` anterior con la red bloqueada) y solo pasa si se permite esa salida
+HTTP, así que no debe contarse como prueba offline.
+
+Las dos pruebas de integración que fallaban (`test_at_least_three_sources_verified` y
 `test_prices_come_from_pages`) dependían de que `deepseek-pricing` extrajera precios:
 la causa era la URL sin barra final, ya corregida y comprobada en vivo. **La suite
-live no se re-ejecutó en esta rama**: depende del contenido cambiante de terceros y
-exigiría varias consultas no indispensables. No se afirma 11/11; queda clasificada
-como verificación de conectividad pendiente, separada de las pruebas deterministas
-con fixtures, que sí están en verde.
+live no se re-ejecutó**: depende del contenido cambiante de terceros y exigiría
+varias consultas no indispensables. No se afirma 11/11; queda clasificada como
+verificación de conectividad pendiente, separada de las pruebas deterministas con
+fixtures, que sí están en verde.
 
 `ACH_OFFLINE=1` **solo lo lee `tests/test_ach_integration.py`**: omite con
 `SkipTest` las pruebas que consultan fuentes reales. No está implementado en
@@ -228,14 +229,30 @@ Esta versión no declara una licencia; se publica para lectura y evaluación.
 
 ### P0 — Corregir antes de considerar una nueva versión estable
 
-1. **Corregir el parseo del veredicto de IA.** En `ach/ai_classify.py`,
-   `parse_response()` utiliza `bool(data["is_offer"])`. En Python,
-   `bool("false")` vale `True`: una respuesta JSON con texto en vez de booleano
-   podría clasificar erróneamente una oferta. Exigir tipo booleano estricto,
-   rechazar valores inválidos y agregar casos de prueba para `false`,
-   `"false"`, `null` y otros tipos. El campo `is_offer=false` de una IA tampoco
-   debe confundirse con una verificación documental: conservar el registro,
-   pero presentarlo como candidato rechazado o pendiente de revisión.
+1. **Corregir el parseo del veredicto de IA.** — **VALIDACIÓN ESTRICTA RESUELTA**
+   (2026-11-10, rama `fix/p01-is-offer-booleano-estricto`, commit base `30181c3`).
+   En `ach/ai_classify.py`, `parse_response()` utilizaba `bool(data["is_offer"])`.
+   En Python, `bool("false")` vale `True`: una respuesta JSON con texto en vez de
+   booleano podía clasificar erróneamente una oferta. Ahora el campo se acepta
+   **solo** si es un booleano JSON auténtico (`isinstance(valor, bool)`): `true` y
+   `false` pasan; cadenas (`"false"`, `"true"`, `"no"`, `""`), números (`0`, `1`,
+   `1.0`), `null`, listas y objetos levantan `ValueError` con el nombre del campo y
+   el tipo recibido. El error se gestiona por la vía ya existente: `_attempt_target()`
+   devuelve `TODOS_LOS_MODELOS_FALLARON` (o prueba el siguiente modelo de la cadena),
+   `pipeline.run()` conserva la oferta y su evidencia, guarda el assessment con
+   `is_offer NULL` y `error`, suma `ai_blocked` y la corrida **no** se interrumpe ni
+   genera una clasificación positiva. Pruebas: 7 casos nuevos en
+   `tests/test_ach_ai.py` (`ParseTestCase`, `ClassifyTestCase`,
+   `FullJourneyTestCase`). La suite de IA suma 32 casos: los 7 nuevos son
+   estrictamente offline y se comprobaron en rojo (18 fallos) contra el código
+   previo; del total, 31 pasan con la red bloqueada y uno exige red por un problema
+   preexistente ajeno a esta corrección (ver sección 7). No debe afirmarse 32/32 offline.
+
+   **Sigue abierto** el segundo requisito del ítem: que `is_offer=false` de una IA no
+   se confunda con una verificación documental y se presente como candidato rechazado
+   o pendiente de revisión. No se tocó la presentación (`ach/web.py` muestra
+   «No es oferta» y «IA bloqueada», pero eso no se auditó ni se cambió en esta
+   entrega).
 
 2. **Reparar el extractor de DeepSeek y hacer resilientes las pruebas live.** —
    **RESUELTO** (2026-11-10, rama `fix/p02-deepseek-pricing`, base `59b91ad`).

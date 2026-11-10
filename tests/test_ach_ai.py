@@ -164,6 +164,42 @@ class ParseTestCase(unittest.TestCase):
         self.assertEqual(a.confidence, "baja")
         self.assertEqual(a.argentina_eligibility, "ARGENTINA_NO_CONFIRMADA")
 
+    def test_is_offer_true_booleano_aceptado(self):
+        a = parse_response(GOOD_JSON)
+        self.assertIs(a.is_offer, True)
+
+    def test_is_offer_false_booleano_aceptado(self):
+        """`false` autentico es un veredicto valido: rechazado, no error."""
+        data = json.loads(GOOD_JSON)
+        data["is_offer"] = False
+        a = parse_response(json.dumps(data))
+        self.assertIs(a.is_offer, False)
+
+    def test_is_offer_false_textual_rechazado(self):
+        """Regresion P0.1: bool("false") era True y clasificaba una oferta inexistente."""
+        crudo = GOOD_JSON.replace('"is_offer": true', '"is_offer": "false"')
+        self.assertIn('"is_offer": "false"', crudo)
+        with self.assertRaises(ValueError):
+            parse_response(crudo)
+
+    def test_is_offer_no_booleano_rechazado(self):
+        base = json.loads(GOOD_JSON)
+        invalidos = ["false", "true", "si", "no", "", 0, 1, 1.0, -1, None,
+                     [], {}, ["true"], {"valor": True}]
+        for invalido in invalidos:
+            with self.subTest(is_offer=invalido):
+                data = dict(base)
+                data["is_offer"] = invalido
+                with self.assertRaises(ValueError):
+                    parse_response(json.dumps(data))
+
+    def test_is_offer_invalido_menciona_el_campo_en_el_error(self):
+        data = json.loads(GOOD_JSON)
+        data["is_offer"] = "false"
+        with self.assertRaises(ValueError) as ctx:
+            parse_response(json.dumps(data))
+        self.assertIn("is_offer", str(ctx.exception))
+
 
 # --------------------------------------------------------------------------
 # Clasificacion: cadena, bloqueos y fallback
@@ -262,6 +298,24 @@ class ClassifyTestCase(unittest.TestCase):
         outcome = classify_candidate(self.cand, store=self.store, http_post=always_fail)
         self.assertFalse(outcome.ok)
         self.assertEqual(outcome.blocked, BLOCKED_ALL_FAILED)
+
+    def test_is_offer_invalido_no_genera_clasificacion_positiva(self):
+        """Regresion P0.1: veredicto no booleano -> intento bloqueado, sin assessment."""
+        contenido = GOOD_JSON.replace('"is_offer": true', '"is_offer": "false"')
+
+        def http_veredicto_textual(url, headers=None, payload=None, timeout=30):
+            return {"choices": [{"message": {"content": contenido}}],
+                    "usage": {"total_tokens": 120}}
+
+        self.store.set_api_key("groq", "gsk_test_123456")
+        self.store.update_provider_settings("groq", {"allow_unverified_cost": True})
+        self.store.update_routing(primary={"provider": "groq", "model": "llama-3.3-70b-versatile"})
+        outcome = classify_candidate(self.cand, store=self.store,
+                                     http_post=http_veredicto_textual)
+        self.assertFalse(outcome.ok)
+        self.assertIsNone(outcome.assessment)
+        self.assertEqual(outcome.blocked, BLOCKED_ALL_FAILED)
+        self.assertIn("is_offer", outcome.detail)
 
     def test_prompt_contains_description_evidence_and_url(self):
         msgs = build_messages(self.cand)
@@ -366,6 +420,42 @@ class FullJourneyTestCase(unittest.TestCase):
             "SELECT COUNT(*) FROM ai_assessment WHERE error IS NOT NULL").fetchone()[0]
         self.assertEqual(errs, report.candidates)
         conn.close()
+
+    def test_is_offer_invalido_no_rompe_la_corrida(self):
+        """Regresion P0.1: veredicto textual -> oferta sin clasificar positiva y corrida intacta."""
+        contenido = GOOD_JSON.replace('"is_offer": true', '"is_offer": "false"')
+
+        def http_veredicto_textual(url, headers=None, payload=None, timeout=30):
+            return {"choices": [{"message": {"content": contenido}}],
+                    "usage": {"total_tokens": 90}}
+
+        self.ai_store.set_api_key("groq", "gsk_test_123456")
+        self.ai_store.update_provider_settings("groq", {"allow_unverified_cost": True})
+        self.ai_store.update_routing(primary={"provider": "groq", "model": "x"})
+        report = pipeline.run(
+            db_path=self.db,
+            fixture_dir=BASE_DIR / "tests" / "fixtures",
+            quiet=True,
+            use_ai=True,
+            ai_store=self.ai_store,
+            ai_http_post=http_veredicto_textual,
+        )
+        self.assertGreater(report.candidates, 0)      # el motor NO se interrumpio
+        self.assertEqual(report.ai_classified, 0)
+        self.assertEqual(report.ai_blocked, report.candidates)
+
+        conn = store.connect(self.db, readonly=True)
+        positivas = conn.execute(
+            "SELECT COUNT(*) FROM ai_assessment WHERE is_offer = 1").fetchone()[0]
+        sin_error = conn.execute(
+            "SELECT COUNT(*) FROM ai_assessment WHERE error IS NULL").fetchone()[0]
+        n_offers = conn.execute("SELECT COUNT(*) FROM offer").fetchone()[0]
+        n_evidence = conn.execute("SELECT COUNT(*) FROM evidence").fetchone()[0]
+        conn.close()
+        self.assertEqual(positivas, 0)
+        self.assertEqual(sin_error, 0)
+        self.assertGreater(n_offers, 0)               # la evidencia determinista se conserva
+        self.assertGreater(n_evidence, 0)
 
     def test_web_views_expose_assessment(self):
         """La interfaz muestra la interpretacion IA marcada como NO oficial."""
