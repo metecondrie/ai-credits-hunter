@@ -67,8 +67,7 @@ def _json_pricing_window(raw: str, model_id: str) -> str:
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                frag = raw[brace:i + 1]
-                return ht.collapse(f'"id":"{model_id}" pricing={frag}')
+                return raw[idx:i + 1]
     return ""
 
 
@@ -124,8 +123,6 @@ def openrouter_free_models(source: Source, res: FetchResult) -> list[Candidate]:
         ctx_txt = f" Contexto maximo: {int(ctx):,} tokens.".replace(",", ".") if isinstance(ctx, int) else ""
 
         snippet = _json_pricing_window(res.text, mid)
-        if not snippet:
-            snippet = json.dumps({"id": mid, "pricing": pricing}, ensure_ascii=False)
         rule = "json:data[].pricing.prompt==0 && pricing.completion==0"
 
         out.append(Candidate(
@@ -1294,11 +1291,15 @@ EXTRACTORS = {
 }
 
 
-def extract(source: Source, res: FetchResult) -> list[Candidate]:
+def extract_with_error(source: Source, res: FetchResult) -> tuple[list[Candidate], str | None]:
     fn = EXTRACTORS.get(source.extractor)
     if not fn:
-        return []
+        return [], f"Extractor no configurado: {source.extractor}"
     try:
-        return fn(source, res)
-    except Exception:
-        return []
+        return fn(source, res), None
+    except Exception as exc:
+        return [], f"{type(exc).__name__}: {exc}"
+
+
+def extract(source: Source, res: FetchResult) -> list[Candidate]:
+    return extract_with_error(source, res)[0]
