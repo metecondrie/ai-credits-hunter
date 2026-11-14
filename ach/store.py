@@ -22,7 +22,8 @@ from .models import Candidate
 TRACKED_FIELDS = [
     "title", "benefit", "price_baseline", "price_offer", "price_unit",
     "discount_pct", "discount_band", "argentina_status", "card_required",
-    "expires_at", "verification_level", "confidence", "official_url",
+    "eligibility", "auto_renewal", "student_required", "expires_at",
+    "verification_level", "confidence", "official_url",
 ]
 
 
@@ -213,8 +214,11 @@ def upsert_offer(conn: sqlite3.Connection, c: Candidate, run_id: int,
         "price_unit": c.price_unit,
         "discount_pct": c.discount_pct,
         "discount_band": band,
+        "eligibility": c.eligibility,
         "argentina_status": c.argentina_status,
         "card_required": c.card_required,
+        "auto_renewal": c.auto_renewal,
+        "student_required": c.student_required,
         "expires_at": c.expires_at,
         "verification_level": level,
         "confidence": c.confidence,

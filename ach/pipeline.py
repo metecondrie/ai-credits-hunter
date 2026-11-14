@@ -154,14 +154,27 @@ def run(
                 print(f"   -> ERROR {res.error}")
             continue
 
-        cands = extract.extract(source, res)
+        cands, extraction_error = extract.extract_with_error(source, res)
+        if extraction_error:
+            outcome = SourceOutcome(source.id, source.url, res.status, 0,
+                                    error=f"EXTRACCION: {extraction_error}",
+                                    elapsed_ms=res.elapsed_ms, bytes=res.bytes_read)
+            report.outcomes.append(outcome)
+            report.errors += 1
+            store.record_source_run(conn, run_id, source.id, source.url, res.status,
+                                    res.bytes_read, res.elapsed_ms, 0, outcome.error)
+            if not quiet:
+                print(f"   -> ERROR {outcome.error}")
+            continue
         if limit_per_source:
             cands = cands[:limit_per_source]
 
         stored = 0
         for c in cands:
-            c = classify.assess(c, res.status, fixture=bool(fixture_dir))
-            level = classify.verification_level(c, res.status, fixture=bool(fixture_dir))
+            c = classify.assess(c, res.status, fixture=bool(fixture_dir),
+                                response_text=res.text)
+            level = classify.verification_level(c, res.status, fixture=bool(fixture_dir),
+                                                response_text=res.text)
             offer_id, event, _changed = store.upsert_offer(conn, c, run_id, level, source.id)
             store.add_evidence(conn, offer_id, run_id, source.id, c.evidence_url,
                                res.status, res.sha256, res.etag, res.last_modified,

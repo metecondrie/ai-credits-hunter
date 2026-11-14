@@ -147,12 +147,15 @@ def card_requirement(c: Candidate) -> str:
     return c.card_required if c.card_required in ("yes", "no") else "unknown"
 
 
-def verification_level(c: Candidate, http_status: int, fixture: bool) -> str:
+def verification_level(c: Candidate, http_status: int, fixture: bool,
+                       response_text: str = "") -> str:
     if fixture:
         return "FIXTURE"
     if http_status != 200:
         return "UNVERIFIED"
-    if not c.evidence_snippet:
+    if not c.evidence_snippet or not response_text:
+        return "UNVERIFIED"
+    if c.evidence_snippet not in response_text:
         return "UNVERIFIED"
     if c.discount_pct is not None and c.price_baseline and c.price_offer is not None:
         return "NETWORK_VERIFIED"
@@ -169,7 +172,8 @@ def confidence(c: Candidate, level: str) -> str:
     return "baja"
 
 
-def assess(c: Candidate, http_status: int, fixture: bool = False) -> Candidate:
+def assess(c: Candidate, http_status: int, fixture: bool = False,
+           response_text: str = "") -> Candidate:
     """Aplica todas las reglas sobre el candidato, en sitio, y lo devuelve."""
     c.offer_type = refine_type(c)
     # Guarda central: ningun extractor puede fabricar un porcentaje sin dos
@@ -179,7 +183,7 @@ def assess(c: Candidate, http_status: int, fixture: bool = False) -> Candidate:
         c.notes = (c.notes + " [porcentaje descartado: sin precios comparables]").strip()
     c.argentina_status = argentina_status(c)
     c.card_required = card_requirement(c)
-    level = verification_level(c, http_status, fixture)
+    level = verification_level(c, http_status, fixture, response_text)
     c.confidence = confidence(c, level)
     if not c.notes:
         c.notes = ""
